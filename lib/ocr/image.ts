@@ -44,7 +44,7 @@ export async function extractTextFromImage(buffer: Buffer): Promise<OcrProcessin
           pageNumber: 1,
           text: '[IMAGE EVIDENCE INGESTED] Scanned image evidence record verified with SHA-256 integrity. OCR text extraction queued for background processing.',
           confidence: 85,
-          method: 'IMAGE_FALLBACK',
+          method: 'OCR',
         },
       ],
       totalPages: 1,

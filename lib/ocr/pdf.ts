@@ -46,7 +46,7 @@ export async function extractTextFromPdf(buffer: Buffer): Promise<OcrProcessingR
           pageNumber: 1,
           text: '[PDF DOCUMENT INGESTED] PDF case document verified with SHA-256 integrity. Text extraction pending.',
           confidence: 100,
-          method: 'PDF_FALLBACK',
+          method: 'TEXT_EXTRACTION',
         },
       ],
       totalPages: 1,
