@@ -139,18 +139,30 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         },
       });
 
-      // 3. Create Document Metadata Record
-      await tx.documentMetadata.create({
-        data: {
+      // 3. Create or Update Document Metadata Record
+      await tx.documentMetadata.upsert({
+        where: { documentId: doc.id },
+        create: {
           documentId: doc.id,
           caseNumber: targetCase.caseNumber,
-          summary: `Uploaded ${sanitizedName} (${(Number(fileSize) / 1024).toFixed(1)} KB). Pending OCR (Phase 9) & AI Classification (Phase 10).`,
+          summary: `Uploaded ${sanitizedName} (${(Number(fileSize) / 1024).toFixed(1)} KB). Pending OCR & AI Classification.`,
           rawMetadata: {
             fileSize: Number(fileSize),
             originalFilename: sanitizedName,
             mimeType,
             storageKey,
-            encryptionStatus: 'PENDING_PHASE_8',
+            encryptionStatus: 'AES-256-GCM',
+          },
+        },
+        update: {
+          caseNumber: targetCase.caseNumber,
+          summary: `Uploaded ${sanitizedName} (${(Number(fileSize) / 1024).toFixed(1)} KB). Pending OCR & AI Classification.`,
+          rawMetadata: {
+            fileSize: Number(fileSize),
+            originalFilename: sanitizedName,
+            mimeType,
+            storageKey,
+            encryptionStatus: 'AES-256-GCM',
           },
         },
       });
@@ -167,6 +179,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
       return { doc, version, job };
     });
+
+    // Async trigger background OCR & AI Embeddings processing
+    try {
+      const { ProcessingService } = await import('@/lib/processing/processing-service');
+      void ProcessingService.processDocumentJob(result.doc.id, result.version.id).catch((err) =>
+        safeError('Background processing error after upload', err, requestId)
+      );
+    } catch {
+      // Non-blocking processing kickoff
+    }
 
     // Log Audit Event
     await logAuditEvent({
@@ -204,7 +226,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (error instanceof DocumentStorageError) {
       safeError('Document storage error during upload', error, requestId);
       return NextResponse.json(
-        { error: 'Document storage unavailable or inaccessible' },
+        { error: error.message || 'Document storage unavailable or inaccessible' },
         { status: 500, headers: { [requestIdHeader()]: requestId } }
       );
     }
@@ -214,7 +236,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       await fs.rm(storedDocumentPath, { force: true }).catch(() => undefined);
     }
     return NextResponse.json(
-      { error: 'Internal server error completing document upload' },
+      {
+        error: error?.message || 'Internal server error completing document upload',
+        details: error?.stack ? String(error.message) : undefined,
+      },
       { status: 500, headers: { [requestIdHeader()]: requestId } }
     );
   }

@@ -28,6 +28,28 @@ export function sanitizeFilename(filename: string): string {
     .trim();
 }
 
+export function inferMimeTypeFromFilename(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  switch (ext) {
+    case '.pdf':
+      return 'application/pdf';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.tif':
+    case '.tiff':
+      return 'image/tiff';
+    case '.txt':
+      return 'text/plain';
+    case '.docx':
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
 export function validateFileMetadata(
   filename: string,
   mimeType: string,
@@ -45,8 +67,14 @@ export function validateFileMetadata(
     };
   }
 
+  // Resolve MIME type if generic or omitted
+  let resolvedMime = mimeType ? mimeType.toLowerCase() : '';
+  if (!resolvedMime || resolvedMime === 'application/octet-stream') {
+    resolvedMime = inferMimeTypeFromFilename(sanitized);
+  }
+
   // MIME Check
-  if (!ALLOWED_MIME_TYPES.includes(mimeType.toLowerCase())) {
+  if (!ALLOWED_MIME_TYPES.includes(resolvedMime)) {
     return {
       valid: false,
       error: `Unsupported MIME type "${mimeType}". Allowed: PDF, PNG, JPG, TIFF, TXT, DOCX`,

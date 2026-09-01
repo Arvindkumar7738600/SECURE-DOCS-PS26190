@@ -78,12 +78,23 @@ export default function UploadDocumentPage() {
       const contentBase64 = await readFileAsBase64(file);
       setProgress(35);
 
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      let resolvedMime = file.type || 'application/octet-stream';
+      if (!file.type || file.type === 'application/octet-stream') {
+        if (ext === 'pdf') resolvedMime = 'application/pdf';
+        else if (ext === 'png') resolvedMime = 'image/png';
+        else if (ext === 'jpg' || ext === 'jpeg') resolvedMime = 'image/jpeg';
+        else if (ext === 'txt') resolvedMime = 'text/plain';
+        else if (ext === 'docx') resolvedMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        else if (ext === 'tif' || ext === 'tiff') resolvedMime = 'image/tiff';
+      }
+
       const initResponse = await fetch(`/api/v1/cases/${caseId}/documents/upload`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           filename: file.name,
-          mimeType: file.type || 'application/octet-stream',
+          mimeType: resolvedMime,
           sizeInBytes: file.size,
           documentType,
         }),
@@ -103,7 +114,7 @@ export default function UploadDocumentPage() {
           documentId: initData.documentId,
           storageKey: initData.storageKey,
           originalFilename: file.name,
-          mimeType: file.type || 'application/octet-stream',
+          mimeType: resolvedMime,
           fileSize: file.size,
           contentBase64,
           documentType,

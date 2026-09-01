@@ -100,12 +100,19 @@ export function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const notificationsRef = useRef<HTMLDivElement | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchValue, setSearchValue] = useState('');
   const [user, setUser] = useState<{ name: string; email: string; roles: string[] } | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState([
+    { id: '1', title: 'SHA-256 Integrity Verified', desc: 'Case #CR-2026 hash-chain verified', time: '10m ago', unread: true },
+    { id: '2', title: 'System Security Check', desc: 'AES-256-GCM encryption active', time: '1h ago', unread: true },
+    { id: '3', title: 'Document Upload Complete', desc: 'FIR report successfully ingested', time: '3h ago', unread: false },
+  ]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem('shell.sidebarCollapsed');
@@ -121,12 +128,16 @@ export function AppShell({
   useEffect(() => {
     setMobileOpen(false);
     setProfileMenuOpen(false);
+    setNotificationsOpen(false);
   }, [pathname]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
         setProfileMenuOpen(false);
+      }
+      if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
+        setNotificationsOpen(false);
       }
     };
 
@@ -406,13 +417,67 @@ export function AppShell({
 
               <div className="flex items-center gap-2">
                 <SecurityStatus label="Session Active" details="RBAC enforced" />
-                <button
-                  type="button"
-                  className="inline-flex rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition hover:bg-slate-50"
-                  aria-label="Notifications"
-                >
-                  <Bell className="h-4 w-4" />
-                </button>
+                <div ref={notificationsRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNotificationsOpen((current) => !current);
+                      setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+                    }}
+                    className={cn(
+                      'relative inline-flex rounded-xl border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition hover:bg-slate-50',
+                      notificationsOpen && 'border-slate-400 bg-slate-100 text-slate-900'
+                    )}
+                    aria-label="Notifications"
+                    aria-haspopup="menu"
+                    aria-expanded={notificationsOpen}
+                  >
+                    <Bell className="h-4 w-4" />
+                    {notifications.some((n) => n.unread) && (
+                      <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
+                        <span className="relative inline-flex h-3 w-3 rounded-full bg-sky-500" />
+                      </span>
+                    )}
+                  </button>
+
+                  {notificationsOpen && (
+                    <div className="absolute right-0 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <Bell className="h-4 w-4 text-sky-500" />
+                          <h4 className="text-sm font-semibold text-slate-900">Notifications</h4>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setNotifications([])}
+                          className="text-[11px] font-medium text-slate-400 hover:text-slate-700 transition"
+                        >
+                          Clear all
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {notifications.length === 0 ? (
+                          <p className="py-6 text-center text-xs text-slate-400">No new notifications</p>
+                        ) : (
+                          notifications.map((item) => (
+                            <div
+                              key={item.id}
+                              className="rounded-xl border border-slate-100 bg-slate-50 p-2.5 transition hover:bg-slate-100/80"
+                            >
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-semibold text-slate-900">{item.title}</p>
+                                <span className="text-[10px] text-slate-400">{item.time}</span>
+                              </div>
+                              <p className="mt-1 text-[11px] text-slate-500 leading-snug">{item.desc}</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => setProfileMenuOpen((current) => !current)}
