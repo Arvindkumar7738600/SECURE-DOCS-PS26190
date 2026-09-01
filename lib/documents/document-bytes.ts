@@ -86,25 +86,42 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
     return { ciphertext, sourcePath: filePath };
   } catch (error: any) {
     if (error?.code === 'ENOENT') {
-      // Check fallback /tmp path
+      // 1. Check fallback /tmp path
       const tmpFallbackPath = path.resolve(os.tmpdir(), 'storage', 'documents', storageKey);
       try {
         const ciphertext = await fs.readFile(tmpFallbackPath);
         return { ciphertext, sourcePath: tmpFallbackPath };
-      } catch {
-        // Fallback to synthetic vault buffer for legacy records or cold container restarts
+      } catch {}
+
+      // 2. Check Persistent Database Storage Fallback from Prisma Metadata
+      try {
+        const { prisma } = await import('@/lib/db/prisma');
+        const versionRecord = await prisma.documentVersion.findFirst({
+          where: { storageKey },
+          include: { document: { include: { metadata: true } } },
+        });
+
+        const rawMetadata = versionRecord?.document?.metadata?.rawMetadata as any;
+        if (rawMetadata?.ciphertextBase64) {
+          const ciphertext = Buffer.from(rawMetadata.ciphertextBase64, 'base64');
+          return { ciphertext, sourcePath: 'database_persistent_vault' };
+        }
+      } catch (dbErr) {
+        console.warn('Database ciphertext retrieval fallback skipped:', dbErr);
       }
 
-      const syntheticFallback = Buffer.from(
-        '[CASE EVIDENCE RECORD] Scanned document evidence record verified with SHA-256 integrity.'
+      throw new DocumentStorageError(
+        `Document bytes are missing from storage for key ${storageKey}`,
+        'MISSING_DOCUMENT_STORAGE',
+        error
       );
-      return { ciphertext: syntheticFallback, sourcePath: filePath };
     }
 
-    const syntheticFallback = Buffer.from(
-      '[CASE EVIDENCE RECORD] Scanned document evidence record verified with SHA-256 integrity.'
+    throw new DocumentStorageError(
+      `Document bytes could not be read for key ${storageKey}`,
+      'CORRUPT_DOCUMENT_STORAGE',
+      error
     );
-    return { ciphertext: syntheticFallback, sourcePath: filePath };
   }
 }
 
@@ -114,7 +131,6 @@ export async function storeDocumentCiphertext(storageKey: string, ciphertext: Bu
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, ciphertext);
   } catch (err: any) {
-    // If writing to default root fails (e.g. read-only filesystem on serverless /var/task), fallback to /tmp
     const fallbackRoot = path.join(os.tmpdir(), 'storage', 'documents');
     filePath = path.resolve(fallbackRoot, storageKey);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -135,6 +151,7 @@ export async function storeEncryptedDocumentPlaintext(
   sourcePath: string;
   sha256: string;
   storageSource: ResolvedDocumentBytes['storageSource'];
+  ciphertext: Buffer;
   encryptionAlgorithm: string;
   iv: string;
   authTag: string;
@@ -143,6 +160,7 @@ export async function storeEncryptedDocumentPlaintext(
   const result = await storeDocumentCiphertext(storageKey, encrypted.encryptedBuffer);
   return {
     ...result,
+    ciphertext: encrypted.encryptedBuffer,
     encryptionAlgorithm: encrypted.algorithm,
     iv: encrypted.iv,
     authTag: encrypted.authTag,
@@ -173,24 +191,16 @@ export async function loadDocumentPlaintext(version: DocumentVersionBytesInput):
     return storedBytes;
   }
 
-  try {
-    const plaintext = decryptDocument(
-      storedBytes.ciphertext,
-      version.iv || ZERO_IV,
-      version.authTag || ZERO_AUTH_TAG
-    );
+  const plaintext = decryptDocument(
+    storedBytes.ciphertext,
+    version.iv || ZERO_IV,
+    version.authTag || ZERO_AUTH_TAG
+  );
 
-    return {
-      ...storedBytes,
-      plaintext,
-    };
-  } catch (decryptError: any) {
-    console.warn('AES-256-GCM decryption mismatch fallback triggered:', decryptError?.message || decryptError);
-    return {
-      ...storedBytes,
-      plaintext: storedBytes.ciphertext,
-    };
-  }
+  return {
+    ...storedBytes,
+    plaintext,
+  };
 }
 
 export async function calculateDocumentSha256(version: DocumentVersionBytesInput): Promise<{ sha256: string; sourcePath: string; storageSource: ResolvedDocumentBytes['storageSource'] }> {

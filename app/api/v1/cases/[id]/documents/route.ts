@@ -152,6 +152,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             mimeType,
             storageKey,
             encryptionStatus: 'AES-256-GCM',
+            ciphertextBase64: storedDocument.ciphertext.toString('base64'),
           },
         },
         update: {
@@ -163,6 +164,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             mimeType,
             storageKey,
             encryptionStatus: 'AES-256-GCM',
+            ciphertextBase64: storedDocument.ciphertext.toString('base64'),
           },
         },
       });
