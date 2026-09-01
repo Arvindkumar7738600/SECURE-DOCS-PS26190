@@ -79,7 +79,7 @@ function resolveStoragePath(storageKey: string): string {
 }
 
 async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer; sourcePath: string }> {
-  let filePath = resolveStoragePath(storageKey);
+  const filePath = resolveStoragePath(storageKey);
 
   try {
     const ciphertext = await fs.readFile(filePath);
