@@ -86,7 +86,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const roles = user.userRoles.map((ur) => ur.role.name);
+    const roles = (user.userRoles || [])
+      .map((ur) => ur?.role?.name)
+      .filter((name): name is string => Boolean(name));
 
     // 3. MFA Challenge Flow if MFA enabled
     if (user.mfaEnabled) {
@@ -149,7 +151,10 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     safeError('Login API error', error, requestId);
     return NextResponse.json(
-      { error: 'Internal server error during login' },
+      {
+        error: error?.message || 'Internal server error during login',
+        details: error?.message,
+      },
       { status: 500, headers: { [requestIdHeader()]: requestId } }
     );
   }
