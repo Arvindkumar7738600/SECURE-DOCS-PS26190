@@ -7,12 +7,12 @@ export const CreateCaseSchema = z.object({
     .min(3, 'Case number must be at least 3 characters long')
     .max(50, 'Case number cannot exceed 50 characters')
     .regex(/^[a-zA-Z0-9_-]+$/, 'Case number must contain only letters, numbers, hyphens, and underscores'),
-  title: z.string().min(3, 'Title must be at least 3 characters long').max(200),
-  description: z.string().min(5, 'Description must be at least 5 characters long'),
-  caseType: z.string().min(2, 'Case type is required'),
+  title: z.string().min(2, 'Title must be at least 2 characters long').max(200),
+  description: z.string().min(1, 'Description is required'),
+  caseType: z.string().min(1, 'Case type is required'),
   status: z.nativeEnum(CaseStatus).optional().default(CaseStatus.OPEN),
   priority: z.nativeEnum(CasePriority).optional().default(CasePriority.MEDIUM),
-  department: z.string().min(2, 'Department is required'),
+  department: z.string().min(1, 'Department is required'),
 });
 
 export const UpdateCaseSchema = z.object({

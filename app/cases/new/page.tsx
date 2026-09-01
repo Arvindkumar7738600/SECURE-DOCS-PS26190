@@ -61,6 +61,12 @@ export default function CreateCasePage() {
 
       const data = await res.json();
       if (!res.ok) {
+        if (data.details) {
+          const detailMsgs = Object.entries(data.details)
+            .map(([field, msgs]: [string, any]) => `${field}: ${Array.isArray(msgs) ? msgs.join(', ') : msgs}`)
+            .join(' | ');
+          throw new Error(`Validation Error: ${detailMsgs}`);
+        }
         throw new Error(data.error || 'Failed to create case');
       }
 
