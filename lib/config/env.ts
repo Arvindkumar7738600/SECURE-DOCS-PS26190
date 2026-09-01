@@ -38,13 +38,15 @@ export function validateServerEnv(): ServerEnv {
   if (!databaseUrl) missing.push('DATABASE_URL');
   if (!jwtSecret && isProduction) missing.push('JWT_SECRET');
 
-  if (missing.length > 0 && isProduction) {
+  const isBuildPhase = process.env.NEXT_PHASE !== undefined;
+
+  if (missing.length > 0 && isProduction && !isBuildPhase) {
     console.error(`[ENV] Missing required environment variables: ${missing.join(', ')}`);
     throw new Error('Server configuration error. Check server logs for details.');
   }
 
-  if (missing.length > 0 && !isProduction) {
-    console.warn(`[ENV] Warning: Missing environment variables in development: ${missing.join(', ')}. Using fallback values.`);
+  if (missing.length > 0 && (!isProduction || isBuildPhase)) {
+    console.warn(`[ENV] Warning: Missing environment variables: ${missing.join(', ')}. Using fallback values.`);
   }
 
   validatedEnvCache = {
@@ -56,5 +58,3 @@ export function validateServerEnv(): ServerEnv {
 
   return validatedEnvCache;
 }
-
-validateServerEnv();

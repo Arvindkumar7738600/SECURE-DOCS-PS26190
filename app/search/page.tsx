@@ -140,7 +140,7 @@ function ResultSkeleton() {
   );
 }
 
-export default function SearchPage() {
+function SearchContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [draftQuery, setDraftQuery] = useState('');
@@ -602,5 +602,13 @@ export default function SearchPage() {
         </aside>
       </div>
     </AppShell>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <React.Suspense fallback={<div className="flex min-h-[400px] items-center justify-center p-12 text-sm text-slate-500">Loading search interface...</div>}>
+      <SearchContent />
+    </React.Suspense>
   );
 }

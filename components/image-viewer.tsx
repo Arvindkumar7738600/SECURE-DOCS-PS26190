@@ -176,7 +176,7 @@ export function EvidenceImageViewer({
             filter: `${inverted ? 'invert(1)' : ''} ${highContrast ? 'contrast(1.6) brightness(1.1)' : ''}`,
           }}
         >
-          {/* eslint-disable-next-html-element-suppression */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={src}
             alt={alt}
