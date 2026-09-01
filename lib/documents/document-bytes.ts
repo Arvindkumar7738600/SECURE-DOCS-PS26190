@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import os from 'os';
 import { encryptDocument, decryptDocument } from '@/lib/security/document-encryption';
 import { calculateSha256 } from '@/lib/security/hash';
 
@@ -48,11 +49,17 @@ const ZERO_IV = '000000000000000000000000';
 const ZERO_AUTH_TAG = '00000000000000000000000000000000';
 
 export function getDocumentStorageRoot(): string {
-  return path.resolve(
-    process.env.DOCUMENT_STORAGE_DIR ||
-      process.env.PRIVATE_STORAGE_DIR ||
-      DEFAULT_STORAGE_ROOT
-  );
+  if (process.env.DOCUMENT_STORAGE_DIR) {
+    return path.resolve(process.env.DOCUMENT_STORAGE_DIR);
+  }
+  if (process.env.PRIVATE_STORAGE_DIR) {
+    return path.resolve(process.env.PRIVATE_STORAGE_DIR);
+  }
+  // In Vercel serverless functions, process.cwd() (/var/task) is read-only. Fallback to /tmp.
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return path.join(os.tmpdir(), 'storage', 'documents');
+  }
+  return DEFAULT_STORAGE_ROOT;
 }
 
 function resolveStoragePath(storageKey: string): string {
@@ -72,13 +79,22 @@ function resolveStoragePath(storageKey: string): string {
 }
 
 async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer; sourcePath: string }> {
-  const filePath = resolveStoragePath(storageKey);
+  let filePath = resolveStoragePath(storageKey);
 
   try {
     const ciphertext = await fs.readFile(filePath);
     return { ciphertext, sourcePath: filePath };
   } catch (error: any) {
     if (error?.code === 'ENOENT') {
+      // Check fallback /tmp path
+      const tmpFallbackPath = path.resolve(os.tmpdir(), 'storage', 'documents', storageKey);
+      try {
+        const ciphertext = await fs.readFile(tmpFallbackPath);
+        return { ciphertext, sourcePath: tmpFallbackPath };
+      } catch {
+        // Continue to throw missing document error
+      }
+
       throw new DocumentStorageError(
         `Document bytes are missing from storage for key ${storageKey}`,
         'MISSING_DOCUMENT_STORAGE',
@@ -95,9 +111,18 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
 }
 
 export async function storeDocumentCiphertext(storageKey: string, ciphertext: Buffer): Promise<{ sourcePath: string; sha256: string; storageSource: ResolvedDocumentBytes['storageSource'] }> {
-  const filePath = resolveStoragePath(storageKey);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, ciphertext);
+  let filePath = resolveStoragePath(storageKey);
+  try {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, ciphertext);
+  } catch (err: any) {
+    // If writing to default root fails (e.g. read-only filesystem on serverless /var/task), fallback to /tmp
+    const fallbackRoot = path.join(os.tmpdir(), 'storage', 'documents');
+    filePath = path.resolve(fallbackRoot, storageKey);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, ciphertext);
+  }
+
   return {
     sourcePath: filePath,
     sha256: calculateSha256(ciphertext),
