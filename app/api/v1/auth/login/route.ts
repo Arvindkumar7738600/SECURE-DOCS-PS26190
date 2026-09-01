@@ -86,9 +86,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const roles = (user.userRoles || [])
-      .map((ur) => ur?.role?.name)
-      .filter((name): name is string => Boolean(name));
+    const roles = user.userRoles.map((ur) => ur.role.name);
 
     // 3. MFA Challenge Flow if MFA enabled
     if (user.mfaEnabled) {
