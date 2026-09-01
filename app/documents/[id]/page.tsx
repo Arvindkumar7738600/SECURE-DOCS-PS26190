@@ -824,7 +824,9 @@ export default function DocumentDetailsPage() {
                           {page.method}
                         </span>
                         <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700">
-                          {page.confidence ? `${(page.confidence * 100).toFixed(1)}% confidence` : 'No confidence score'}
+                          {page.confidence !== null && page.confidence !== undefined
+                            ? `${(page.confidence > 1 ? page.confidence : page.confidence * 100).toFixed(1)}% confidence`
+                            : 'No confidence score'}
                         </span>
                       </div>
                     </div>
