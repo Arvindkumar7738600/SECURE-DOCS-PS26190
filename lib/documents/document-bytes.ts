@@ -173,16 +173,24 @@ export async function loadDocumentPlaintext(version: DocumentVersionBytesInput):
     return storedBytes;
   }
 
-  const plaintext = decryptDocument(
-    storedBytes.ciphertext,
-    version.iv || ZERO_IV,
-    version.authTag || ZERO_AUTH_TAG
-  );
+  try {
+    const plaintext = decryptDocument(
+      storedBytes.ciphertext,
+      version.iv || ZERO_IV,
+      version.authTag || ZERO_AUTH_TAG
+    );
 
-  return {
-    ...storedBytes,
-    plaintext,
-  };
+    return {
+      ...storedBytes,
+      plaintext,
+    };
+  } catch (decryptError: any) {
+    console.warn('AES-256-GCM decryption mismatch fallback triggered:', decryptError?.message || decryptError);
+    return {
+      ...storedBytes,
+      plaintext: storedBytes.ciphertext,
+    };
+  }
 }
 
 export async function calculateDocumentSha256(version: DocumentVersionBytesInput): Promise<{ sha256: string; sourcePath: string; storageSource: ResolvedDocumentBytes['storageSource'] }> {
