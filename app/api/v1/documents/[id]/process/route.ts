@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!result.success) {
       console.error('Document processing failed:', result.error);
       return NextResponse.json(
-        { error: 'Document processing failed. Please try again or contact support.' },
+        { error: result.error || 'Document processing failed. Please try again or contact support.' },
         { status: 500 }
       );
     }
@@ -60,6 +60,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     );
   } catch (error: any) {
     console.error('Process Document API error:', error);
-    return NextResponse.json({ error: 'Internal server error processing document' }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || 'Internal server error processing document', details: error?.message },
+      { status: 500 }
+    );
   }
 }
