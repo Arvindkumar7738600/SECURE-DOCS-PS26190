@@ -187,15 +187,49 @@ export default function DocumentDetailsPage() {
     setProcessingOcr(true);
     setBannerError(null);
     try {
-      // Read file as base64
-      const base64 = await new Promise<string>((resolve, reject) => {
+      // Read & compress image via Canvas if file is large (> 1.5MB)
+      const base64 = await new Promise<string>((resolve) => {
         const reader = new FileReader();
-        reader.onload = () => {
-          const res = String(reader.result || '');
-          const clean = res.includes(',') ? res.split(',')[1] : res;
-          resolve(clean);
+        reader.onload = (evt) => {
+          const dataUrl = String(evt.target?.result || '');
+          if (!selectedFile.type.startsWith('image/') || selectedFile.size <= 1.5 * 1024 * 1024) {
+            const clean = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+            return resolve(clean);
+          }
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            const maxDim = 2000;
+            if (width > maxDim || height > maxDim) {
+              if (width > height) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+              } else {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              const compressedUrl = canvas.toDataURL('image/jpeg', 0.82);
+              const clean = compressedUrl.includes(',') ? compressedUrl.split(',')[1] : compressedUrl;
+              return resolve(clean);
+            }
+            const clean = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+            resolve(clean);
+          };
+          img.onerror = () => {
+            const clean = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+            resolve(clean);
+          };
+          img.src = dataUrl;
         };
-        reader.onerror = () => reject(new Error('Failed to read selected file'));
+        reader.onerror = () => resolve('');
         reader.readAsDataURL(selectedFile);
       });
 
@@ -204,7 +238,10 @@ export default function DocumentDetailsPage() {
       if (selectedFile.type.startsWith('image/')) {
         try {
           const { createWorker } = await import('tesseract.js');
-          const worker = await createWorker('eng');
+          const worker = await createWorker('eng', 1, {
+            langPath: 'https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0',
+            logger: () => {},
+          });
           const ret = await worker.recognize(selectedFile);
           await worker.terminate();
           if (ret.data.text && ret.data.text.trim().length > 0) {
@@ -215,20 +252,14 @@ export default function DocumentDetailsPage() {
         }
       }
 
-      // Cap base64 string size at 2.5 MB to strictly stay under Vercel 4.5 MB request body limit
-      let base64ToSend = base64;
-      if (base64.length > 2.5 * 1024 * 1024) {
-        base64ToSend = base64.substring(0, 2.5 * 1024 * 1024);
-      }
-
-      // Send with a 55-second timeout for server processing
+      // Send with a 90-second timeout for server processing
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 55000);
+      const timeout = setTimeout(() => controller.abort(), 90000);
 
       const res = await fetch(`/api/v1/documents/${documentId}/reprocess`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contentBase64: base64ToSend, clientOcrText }),
+        body: JSON.stringify({ contentBase64: base64, clientOcrText }),
         signal: controller.signal,
       });
       clearTimeout(timeout);
