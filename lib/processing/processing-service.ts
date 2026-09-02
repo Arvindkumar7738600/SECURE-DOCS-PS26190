@@ -74,13 +74,16 @@ export class ProcessingService {
           where: { versionId: version.id },
         });
 
+        const { sanitizeUtf8 } = await import('@/lib/ocr/service');
+
         for (const p of ocrResult.pages) {
+          const cleanText = sanitizeUtf8(p.text);
           await tx.ocrPage.create({
             data: {
               documentId: document.id,
               versionId: version.id,
               pageNumber: p.pageNumber,
-              text: p.text,
+              text: cleanText,
               confidence: p.confidence,
               method: p.method,
             },
