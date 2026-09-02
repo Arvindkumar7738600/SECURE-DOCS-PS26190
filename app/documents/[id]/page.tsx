@@ -450,7 +450,7 @@ export default function DocumentDetailsPage() {
     setPreviewOpen(true);
     setPreviewLoading(true);
     setPreviewError(null);
-    setPreviewFilename(document?.originalFilename);
+    setPreviewFilename(document?.originalFilename || '');
     setPreviewMimeType(document?.mimeType || 'application/octet-stream');
 
     try {
