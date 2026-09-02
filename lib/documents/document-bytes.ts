@@ -193,11 +193,47 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
       }
 
       // Last-resort lookup handles legacy pathname/URL representation changes.
-      const result = await list({ prefix: canonicalStorageKey, limit: 1000, storeId, token });
+      // Do not limit this to the stored prefix: that prefix may be the value
+      // that changed during a storage migration.
+      const allBlobs = [] as Awaited<ReturnType<typeof list>>['blobs'];
+      let cursor: string | undefined;
+      do {
+        const result = await list({ prefix: 'cases/', limit: 1000, cursor, storeId, token });
+        allBlobs.push(...result.blobs);
+        cursor = result.hasMore ? result.cursor : undefined;
+      } while (cursor);
+
       const references = new Set(getBlobReferences(storageKey));
-      const blob = result.blobs.find(
+      const exactMatches = allBlobs.filter(
         (item) => references.has(item.pathname) || references.has(item.url)
       );
+
+      const documentMatch = canonicalStorageKey.match(
+        /(?:^|\/)documents\/([^/]+)(?:\/versions\/([^/]+))?(?:\/|$)/
+      );
+      const documentId = documentMatch?.[1];
+      const versionNumber = documentMatch?.[2];
+      const documentMatches = allBlobs.filter((item) => {
+        const pathname = normalizeStoragePath(item.pathname);
+        return Boolean(
+          documentId &&
+          pathname.includes(`/documents/${documentId}/`) &&
+          (!versionNumber || pathname.includes(`/versions/${versionNumber}/`))
+        );
+      });
+
+      const filename = path.basename(canonicalStorageKey);
+      const filenameMatches = allBlobs.filter((item) =>
+        normalizeStoragePath(item.pathname).endsWith(`/${filename}`)
+      );
+      const matches = exactMatches.length > 0
+        ? exactMatches
+        : documentMatches.length > 0
+          ? documentMatches
+          : filenameMatches.length === 1
+            ? filenameMatches
+            : [];
+      const blob = matches[0];
       if (!blob) {
         throw new DocumentStorageError(
           `Document storage is missing for "${canonicalStorageKey}"`,
