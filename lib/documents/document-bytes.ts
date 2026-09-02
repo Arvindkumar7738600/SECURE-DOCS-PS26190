@@ -93,7 +93,25 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
         return { ciphertext, sourcePath: tmpFallbackPath };
       } catch {}
 
-      // 2. Check Persistent Database Storage Fallback from Prisma Metadata
+      // 2. Check Vercel Blob Cloud Storage Fallback
+      if (process.env.BLOB_READ_WRITE_TOKEN) {
+        try {
+          const { list } = await import('@vercel/blob');
+          const blobs = await list({ prefix: storageKey });
+          if (blobs.blobs.length > 0) {
+            const blobUrl = blobs.blobs[0].url;
+            const response = await fetch(blobUrl);
+            if (response.ok) {
+              const arrayBuffer = await response.arrayBuffer();
+              return { ciphertext: Buffer.from(arrayBuffer), sourcePath: blobUrl };
+            }
+          }
+        } catch (blobErr) {
+          console.warn('Vercel Blob retrieval fallback skipped:', blobErr);
+        }
+      }
+
+      // 3. Check Persistent Database Storage Fallback from Prisma Metadata
       try {
         const { prisma } = await import('@/lib/db/prisma');
         const versionRecord = await prisma.documentVersion.findFirst({
@@ -143,6 +161,20 @@ export async function storeDocumentCiphertext(storageKey: string, ciphertext: Bu
     filePath = path.resolve(fallbackRoot, storageKey);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, ciphertext);
+  }
+
+  // Upload to Vercel Blob Cloud Storage if token is configured
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const { put } = await import('@vercel/blob');
+      const blob = await put(storageKey, ciphertext, {
+        access: 'public',
+        addRandomSuffix: false,
+      });
+      filePath = blob.url;
+    } catch (blobErr) {
+      console.warn('Vercel Blob store skipped/failed:', blobErr);
+    }
   }
 
   return {
