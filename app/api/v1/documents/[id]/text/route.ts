@@ -51,16 +51,25 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     });
 
     const sanitizedPages = pages.map((p) => {
+      const textVal = p.text || '';
+      const isReplacementGibberish =
+        textVal.includes('\uFFFD') ||
+        textVal.includes('cCfCj') ||
+        textVal.includes('?') ||
+        /[^\x20-\x7E\n\r\t]{5,}/.test(textVal);
+
       const isPlaceholder =
-        !p.text ||
-        p.text.includes('[CASE EVIDENCE RECORD]') ||
-        p.text.includes('[SCANNED EVIDENCE IMAGE]') ||
-        p.text.includes('Digital evidence image record verified');
+        !textVal ||
+        isReplacementGibberish ||
+        textVal.includes('[CASE EVIDENCE RECORD]') ||
+        textVal.includes('[SCANNED EVIDENCE IMAGE]') ||
+        textVal.includes('Digital evidence image record verified');
+
       return {
         ...p,
         text: isPlaceholder
           ? 'No OCR text extracted yet. Click "Re-upload Evidence File" or "Run OCR Pipeline" to extract text from your evidence image.'
-          : p.text,
+          : textVal,
       };
     });
 
