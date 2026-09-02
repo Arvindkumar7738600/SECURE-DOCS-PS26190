@@ -383,20 +383,10 @@ export default function DocumentDetailsPage() {
   };
 
   const handleProcessOcr = async () => {
-    setProcessingOcr(true);
-    setBannerError(null);
-    try {
-      const res = await fetch(`/api/v1/documents/${documentId}/process`, {
-        method: 'POST',
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'OCR processing failed');
-      await fetchDocumentDetails();
-      setActiveTab('ocr');
-    } catch (err: any) {
-      setBannerError(err.message || 'OCR processing failed');
-    } finally {
-      setProcessingOcr(false);
+    // The /process endpoint needs file bytes on disk, which Vercel doesn't persist.
+    // Instead, trigger the file picker so user selects a file and we send it directly via /reprocess.
+    if (reuploadInputRef.current) {
+      reuploadInputRef.current.click();
     }
   };
 
