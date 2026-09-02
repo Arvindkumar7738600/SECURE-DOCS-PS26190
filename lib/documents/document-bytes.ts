@@ -93,6 +93,10 @@ function assertStorageConfiguration(): 'filesystem' | 'vercel-blob' {
   );
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function resolveStoragePath(storageKey: string): string {
   if (!storageKey) {
     throw new DocumentStorageError('Document storage key is required', 'INVALID_STORAGE_KEY');
@@ -136,7 +140,7 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
     } catch (error) {
       if (error instanceof DocumentStorageError) throw error;
       throw new DocumentStorageError(
-        'Document storage could not be read from Vercel Blob',
+        `Document storage could not be read from Vercel Blob: ${getErrorMessage(error)}`,
         'CORRUPT_DOCUMENT_STORAGE',
         error
       );
@@ -191,7 +195,7 @@ export async function storeDocumentCiphertext(storageKey: string, ciphertext: Bu
       };
     } catch (error) {
       throw new DocumentStorageError(
-        'Document could not be persisted to Vercel Blob',
+        `Document could not be persisted to Vercel Blob: ${getErrorMessage(error)}`,
         'CORRUPT_DOCUMENT_STORAGE',
         error
       );
