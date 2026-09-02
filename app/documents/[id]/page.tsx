@@ -199,14 +199,30 @@ export default function DocumentDetailsPage() {
         reader.readAsDataURL(selectedFile);
       });
 
-      // Send with a 55-second timeout for Tesseract cold start
+      // Client-side browser OCR fallback for instant image text recognition
+      let clientOcrText = '';
+      if (selectedFile.type.startsWith('image/')) {
+        try {
+          const { createWorker } = await import('tesseract.js');
+          const worker = await createWorker('eng');
+          const ret = await worker.recognize(selectedFile);
+          await worker.terminate();
+          if (ret.data.text && ret.data.text.trim().length > 0) {
+            clientOcrText = ret.data.text.trim();
+          }
+        } catch (clientOcrErr) {
+          console.warn('Browser client Tesseract skipped:', clientOcrErr);
+        }
+      }
+
+      // Send with a 55-second timeout for server processing
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 55000);
 
       const res = await fetch(`/api/v1/documents/${documentId}/reprocess`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contentBase64: base64 }),
+        body: JSON.stringify({ contentBase64: base64, clientOcrText }),
         signal: controller.signal,
       });
       clearTimeout(timeout);
