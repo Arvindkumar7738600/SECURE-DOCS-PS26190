@@ -450,8 +450,8 @@ export default function DocumentDetailsPage() {
     setPreviewOpen(true);
     setPreviewLoading(true);
     setPreviewError(null);
-    setPreviewFilename(document.originalFilename);
-    setPreviewMimeType(document.mimeType || 'application/octet-stream');
+    setPreviewFilename(document?.originalFilename);
+    setPreviewMimeType(document?.mimeType || 'application/octet-stream');
 
     try {
       const res = await fetch(`/api/v1/documents/${documentId}/download`);
