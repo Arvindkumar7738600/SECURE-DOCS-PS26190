@@ -292,6 +292,7 @@ export default function DocumentDetailsPage() {
     try {
       const res = await fetch(`/api/v1/documents/${documentId}/process`, {
         method: 'POST',
+        credentials: 'include',
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'OCR processing failed');
