@@ -896,7 +896,7 @@ export default function DocumentDetailsPage() {
             actions={
               <div className="flex flex-wrap items-center gap-2">
                 {ocrPages.length > 0 ? (
-                  <>
+                  <React.Fragment>
                     <SecondaryButton type="button" onClick={handleCopyOcrText}>
                       {copiedOcrText ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
                       {copiedOcrText ? 'Copied!' : 'Copy Text'}
@@ -909,7 +909,8 @@ export default function DocumentDetailsPage() {
                       <FileText className="h-4 w-4" />
                       Export JSON
                     </SecondaryButton>
-                  </>
+                  </React.Fragment>
+                ) : null}
                 <input
                   type="file"
                   ref={reuploadInputRef}
