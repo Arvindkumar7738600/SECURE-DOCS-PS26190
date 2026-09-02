@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { list, put } from '@vercel/blob';
 import { encryptDocument, decryptDocument } from '@/lib/security/document-encryption';
 import { calculateSha256 } from '@/lib/security/hash';
 
@@ -15,7 +16,7 @@ export interface ResolvedDocumentBytes {
   ciphertext: Buffer;
   plaintext: Buffer;
   sourcePath: string;
-  storageSource: 'filesystem';
+  storageSource: 'filesystem' | 'vercel-blob';
 }
 
 export interface DocumentIntegrityResult {
@@ -28,11 +29,19 @@ export interface DocumentIntegrityResult {
 }
 
 export class DocumentStorageError extends Error {
-  code: 'INVALID_STORAGE_KEY' | 'MISSING_DOCUMENT_STORAGE' | 'CORRUPT_DOCUMENT_STORAGE';
+  code:
+    | 'INVALID_STORAGE_KEY'
+    | 'MISSING_DOCUMENT_STORAGE'
+    | 'CORRUPT_DOCUMENT_STORAGE'
+    | 'STORAGE_NOT_CONFIGURED';
 
   constructor(
     message: string,
-    code: 'INVALID_STORAGE_KEY' | 'MISSING_DOCUMENT_STORAGE' | 'CORRUPT_DOCUMENT_STORAGE',
+    code:
+      | 'INVALID_STORAGE_KEY'
+      | 'MISSING_DOCUMENT_STORAGE'
+      | 'CORRUPT_DOCUMENT_STORAGE'
+      | 'STORAGE_NOT_CONFIGURED',
     cause?: unknown
   ) {
     super(message);
@@ -60,6 +69,30 @@ export function getDocumentStorageRoot(): string {
   return DEFAULT_STORAGE_ROOT;
 }
 
+function getBlobToken(): string | null {
+  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
+  return token && token !== 'vercel_blob_rw_dummy_token_for_local_dev' ? token : null;
+}
+
+function shouldUseLocalFilesystem(): boolean {
+  // An explicit local directory is useful for development and automated tests.
+  if (process.env.DOCUMENT_STORAGE_DIR || process.env.PRIVATE_STORAGE_DIR) {
+    return !process.env.VERCEL && process.env.NODE_ENV !== 'production';
+  }
+
+  return !process.env.VERCEL && process.env.NODE_ENV !== 'production' && !getBlobToken();
+}
+
+function assertStorageConfiguration(): 'filesystem' | 'vercel-blob' {
+  if (shouldUseLocalFilesystem()) return 'filesystem';
+  if (getBlobToken()) return 'vercel-blob';
+
+  throw new DocumentStorageError(
+    'Persistent document storage is not configured. Set BLOB_READ_WRITE_TOKEN.',
+    'STORAGE_NOT_CONFIGURED'
+  );
+}
+
 function resolveStoragePath(storageKey: string): string {
   if (!storageKey) {
     throw new DocumentStorageError('Document storage key is required', 'INVALID_STORAGE_KEY');
@@ -77,6 +110,39 @@ function resolveStoragePath(storageKey: string): string {
 }
 
 async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer; sourcePath: string }> {
+  const storageBackend = assertStorageConfiguration();
+
+  if (storageBackend === 'vercel-blob') {
+    const token = getBlobToken()!;
+    try {
+      const result = await list({ prefix: storageKey, limit: 1000, token });
+      const blob = result.blobs.find((item) => item.pathname === storageKey);
+      if (!blob) {
+        throw new DocumentStorageError(
+          'Document storage is missing',
+          'MISSING_DOCUMENT_STORAGE'
+        );
+      }
+
+      const response = await fetch(blob.url, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Blob download failed with status ${response.status}`);
+      }
+
+      return {
+        ciphertext: Buffer.from(await response.arrayBuffer()),
+        sourcePath: blob.url,
+      };
+    } catch (error) {
+      if (error instanceof DocumentStorageError) throw error;
+      throw new DocumentStorageError(
+        'Document storage could not be read from Vercel Blob',
+        'CORRUPT_DOCUMENT_STORAGE',
+        error
+      );
+    }
+  }
+
   const filePath = resolveStoragePath(storageKey);
 
   try {
@@ -107,6 +173,31 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
 }
 
 export async function storeDocumentCiphertext(storageKey: string, ciphertext: Buffer): Promise<{ sourcePath: string; sha256: string; storageSource: ResolvedDocumentBytes['storageSource'] }> {
+  const storageBackend = assertStorageConfiguration();
+
+  if (storageBackend === 'vercel-blob') {
+    const token = getBlobToken()!;
+    try {
+      const blob = await put(storageKey, ciphertext, {
+        access: 'public',
+        addRandomSuffix: false,
+        token,
+      });
+
+      return {
+        sourcePath: blob.url,
+        sha256: calculateSha256(ciphertext),
+        storageSource: 'vercel-blob',
+      };
+    } catch (error) {
+      throw new DocumentStorageError(
+        'Document could not be persisted to Vercel Blob',
+        'CORRUPT_DOCUMENT_STORAGE',
+        error
+      );
+    }
+  }
+
   let filePath = resolveStoragePath(storageKey);
   try {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -155,7 +246,7 @@ export async function loadStoredDocumentCiphertext(storageKey: string): Promise<
     ciphertext: stored.ciphertext,
     plaintext: stored.ciphertext,
     sourcePath: stored.sourcePath,
-    storageSource: 'filesystem',
+    storageSource: assertStorageConfiguration(),
   };
 }
 
