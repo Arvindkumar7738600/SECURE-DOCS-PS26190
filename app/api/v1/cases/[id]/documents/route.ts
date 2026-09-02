@@ -98,7 +98,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       ? (documentType as DocumentType)
       : DocumentType.OTHER;
 
-    const plaintextBuffer = Buffer.from(contentBase64, 'base64');
+    const cleanBase64 = typeof contentBase64 === 'string'
+      ? contentBase64.replace(/^data:[^;]+;base64,/, '').trim()
+      : '';
+    const plaintextBuffer = Buffer.from(cleanBase64, 'base64');
     if (plaintextBuffer.length === 0) {
       return NextResponse.json({ error: 'contentBase64 must contain document bytes' }, { status: 400 });
     }

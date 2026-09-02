@@ -8,7 +8,7 @@ export async function extractTextFromImage(buffer: Buffer): Promise<OcrProcessin
     let worker: any = null;
     try {
       const cachePath = path.join(os.tmpdir(), 'tesseract-cache');
-      worker = await createWorker('eng', 1, {
+      worker = await createWorker('eng', undefined, {
         cachePath,
         logger: () => {},
       });

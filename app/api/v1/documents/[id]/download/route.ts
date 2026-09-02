@@ -82,11 +82,12 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       metadata: { filename: document.originalFilename, versionNumber: version.versionNumber },
     });
 
+    const safeFilename = document.originalFilename.replace(/[^a-zA-Z0-9_.-]/g, '_');
     return new NextResponse(new Uint8Array(plaintextBuffer), {
       status: 200,
       headers: {
         'Content-Type': document.mimeType || 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${encodeURIComponent(document.originalFilename)}"`,
+        'Content-Disposition': `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(document.originalFilename)}`,
         'Content-Length': plaintextBuffer.length.toString(),
         [requestIdHeader()]: requestId,
       },
