@@ -184,7 +184,7 @@ export default function DocumentDetailsPage() {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    setReuploading(true);
+    setProcessingOcr(true);
     setBannerError(null);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
@@ -204,13 +204,14 @@ export default function DocumentDetailsPage() {
         body: JSON.stringify({ contentBase64: base64 }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to re-upload file');
+      if (!res.ok) throw new Error(data.error || 'Failed to process re-uploaded evidence file');
 
       await fetchDocumentDetails();
+      setActiveTab('ocr');
     } catch (err: any) {
-      setBannerError(err.message || 'Failed to re-upload evidence file');
+      setBannerError(err.message || 'Failed to extract text from evidence file');
     } finally {
-      setReuploading(false);
+      setProcessingOcr(false);
       if (reuploadInputRef.current) reuploadInputRef.current.value = '';
     }
   };
