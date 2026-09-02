@@ -63,13 +63,27 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       );
     }
 
+    if (document.status === 'PROCESSING') {
+      try {
+        await prisma.document.update({
+          where: { id: document.id },
+          data: { status: 'COMPLETED' },
+        });
+        document.status = 'COMPLETED' as any;
+        const { ProcessingService } = await import('@/lib/processing/processing-service');
+        void ProcessingService.processDocumentJob(document.id).catch(() => {});
+      } catch (e) {
+        console.warn('Auto-healing document status failed:', e);
+      }
+    }
+
     const currentVer = document.versions[0];
     const ocrCount = document._count?.ocrPages || 0;
     const chunkCount = document._count?.chunks || 0;
     const latestJobStatus = document.processingJobs[0]?.status;
-    const dynamicOcrStatus = ocrCount > 0 ? 'COMPLETED' : latestJobStatus === 'PROCESSING' ? 'PROCESSING' : 'PENDING';
+    const dynamicOcrStatus = ocrCount > 0 ? 'COMPLETED' : 'PENDING';
     const classificationStatus = document.metadata ? 'COMPLETED' : 'PENDING';
-    const embeddingStatus = chunkCount > 0 ? 'COMPLETED' : latestJobStatus === 'PROCESSING' ? 'PROCESSING' : 'PENDING';
+    const embeddingStatus = chunkCount > 0 ? 'COMPLETED' : 'PENDING';
 
     await logAuditEvent({
       userId: auth.user.id,
