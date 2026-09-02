@@ -68,7 +68,7 @@ export class ProcessingService {
         throw new Error(ocrResult.error || 'OCR text extraction failed');
       }
 
-      // 6. Store OCR pages
+      // 6. Store OCR pages and update document status -> COMPLETED immediately
       await prisma.$transaction(async (tx) => {
         await tx.ocrPage.deleteMany({
           where: { versionId: version.id },
@@ -86,6 +86,11 @@ export class ProcessingService {
             },
           });
         }
+
+        await tx.document.update({
+          where: { id: document.id },
+          data: { status: ProcessingStatus.COMPLETED },
+        });
       });
 
       // 6b. Build semantic chunk embeddings for pgvector search.

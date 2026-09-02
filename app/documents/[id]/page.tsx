@@ -934,12 +934,20 @@ export default function DocumentDetailsPage() {
             {ocrPages.length === 0 ? (
               <EmptyState
                 title="No OCR pages extracted yet"
-                description="Run the OCR recognition pipeline to extract page-level text."
+                description="Click 'Re-upload Evidence File' to attach your image or run the OCR recognition pipeline."
                 action={
-                  <PrimaryButton type="button" onClick={handleProcessOcr} disabled={processingOcr}>
-                    <Cpu className="h-4 w-4" />
-                    {processingOcr ? 'Processing...' : 'Run OCR Pipeline'}
-                  </PrimaryButton>
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    {canEditMetadata ? (
+                      <SecondaryButton type="button" onClick={() => reuploadInputRef.current?.click()} disabled={reuploading}>
+                        <Upload className="h-4 w-4" />
+                        {reuploading ? 'Uploading...' : 'Re-upload Evidence File'}
+                      </SecondaryButton>
+                    ) : null}
+                    <PrimaryButton type="button" onClick={handleProcessOcr} disabled={processingOcr}>
+                      <Cpu className="h-4 w-4" />
+                      {processingOcr ? 'Processing...' : 'Run OCR Pipeline'}
+                    </PrimaryButton>
+                  </div>
                 }
               />
             ) : (
