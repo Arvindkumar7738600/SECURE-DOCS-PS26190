@@ -215,6 +215,12 @@ export default function DocumentDetailsPage() {
         }
       }
 
+      // Cap base64 string size at 2.5 MB to strictly stay under Vercel 4.5 MB request body limit
+      let base64ToSend = base64;
+      if (base64.length > 2.5 * 1024 * 1024) {
+        base64ToSend = base64.substring(0, 2.5 * 1024 * 1024);
+      }
+
       // Send with a 55-second timeout for server processing
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 55000);
@@ -222,7 +228,7 @@ export default function DocumentDetailsPage() {
       const res = await fetch(`/api/v1/documents/${documentId}/reprocess`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contentBase64: base64, clientOcrText }),
+        body: JSON.stringify({ contentBase64: base64ToSend, clientOcrText }),
         signal: controller.signal,
       });
       clearTimeout(timeout);

@@ -39,24 +39,17 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const version = document.versions[0];
 
-    // Parse request body for base64 content
+    // Parse request body for base64 content or client OCR text
     const body = await req.json().catch(() => ({}));
-    if (!body?.contentBase64) {
+    if (!body?.contentBase64 && !body?.clientOcrText) {
       return NextResponse.json(
-        { error: 'Missing contentBase64 in request body. Please re-upload the evidence file.' },
+        { error: 'Missing evidence file data. Please re-upload your evidence file.' },
         { status: 400 }
       );
     }
 
-    const cleanBase64 = String(body.contentBase64).replace(/^data:[^;]+;base64,/, '').trim();
+    const cleanBase64 = String(body?.contentBase64 || '').replace(/^data:[^;]+;base64,/, '').trim();
     const plaintextBuffer = Buffer.from(cleanBase64, 'base64');
-
-    if (plaintextBuffer.length === 0) {
-      return NextResponse.json(
-        { error: 'Uploaded file is empty. Please select a valid evidence file.' },
-        { status: 400 }
-      );
-    }
 
     let finalPages: Array<{ pageNumber: number; text: string; confidence: number; method: string }> = [];
 
