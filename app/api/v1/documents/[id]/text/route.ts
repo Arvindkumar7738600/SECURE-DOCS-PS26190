@@ -52,21 +52,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     const sanitizedPages = pages.map((p) => {
       const textVal = p.text || '';
-      const hasGibberishChars =
+      const isBadGibberish =
         textVal.includes('cCfCj') ||
-        textVal.includes('') ||
         textVal.includes('\uFFFD') ||
-        textVal.includes('?') ||
-        /[^\x20-\x7E\n\r\t]/.test(textVal) ||
-        (/[^a-zA-Z0-9\s.,?!'\":;\-()]{6,}/.test(textVal) &&
-          !/\b(the|and|for|with|case|court|police|station|document|evidence|record|section|act|vs|state|high|supreme|bank|account|number|date|fir|page|text|scanned|image|record|verified)\b/i.test(textVal));
+        textVal.includes('\0') ||
+        ((textVal.match(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFD]/g) || []).length / (textVal.length || 1) > 0.1);
 
-      const isPlaceholder =
-        !textVal ||
-        hasGibberishChars ||
-        textVal.includes('[CASE EVIDENCE RECORD]') ||
-        textVal.includes('[SCANNED EVIDENCE IMAGE]') ||
-        textVal.includes('Digital evidence image record verified');
+      const isPlaceholder = !textVal || isBadGibberish;
 
       return {
         ...p,
