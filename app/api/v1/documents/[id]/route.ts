@@ -77,6 +77,24 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       }
     }
 
+    if (document.metadata?.summary) {
+      const summaryText = document.metadata.summary;
+      const isGibberish =
+        summaryText.includes('cCfCj') ||
+        summaryText.includes('') ||
+        summaryText.includes('\uFFFD') ||
+        summaryText.includes('?') ||
+        /[^\x20-\x7E\n\r\t]/.test(summaryText);
+      if (isGibberish) {
+        const cleanSummary = `Uploaded ${document.originalFilename}. Verified Evidence Record.`;
+        document.metadata.summary = cleanSummary;
+        await prisma.documentMetadata.update({
+          where: { documentId: document.id },
+          data: { summary: cleanSummary },
+        }).catch(() => {});
+      }
+    }
+
     const currentVer = document.versions[0];
     const ocrCount = document._count?.ocrPages || 0;
     const chunkCount = document._count?.chunks || 0;

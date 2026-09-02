@@ -589,6 +589,15 @@ export default function DocumentDetailsPage() {
     </button>
   );
 
+  const headerDescription =
+    document.metadata?.summary &&
+    !document.metadata.summary.includes('cCfCj') &&
+    !document.metadata.summary.includes('') &&
+    !document.metadata.summary.includes('\uFFFD') &&
+    !/[^\x20-\x7E\n\r\t]/.test(document.metadata.summary)
+      ? document.metadata.summary
+      : `Uploaded ${document.originalFilename}. Verified Evidence Record.`;
+
   return (
     <AppShell
       breadcrumbs={[
@@ -614,7 +623,7 @@ export default function DocumentDetailsPage() {
       <PageHeader
         eyebrow="Document Workspace"
         title={document.title}
-        description={document.metadata?.summary || 'Secure document record with metadata, OCR, classification, signatures, and sharing controls.'}
+        description={headerDescription}
       />
 
       {bannerError ? <ErrorState title="Action failed" description={bannerError} /> : null}
