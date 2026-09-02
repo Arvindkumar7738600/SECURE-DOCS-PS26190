@@ -54,7 +54,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     let plaintextBuffer: Buffer = Buffer.from('');
 
     try {
-      let resolvedBytes = await loadDocumentPlaintext({
+      const resolvedBytes = await loadDocumentPlaintext({
         storageKey: version.storageKey,
         encryptionAlgorithm: version.encryptionAlgorithm,
         iv: version.iv,
