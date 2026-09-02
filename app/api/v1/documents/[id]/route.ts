@@ -67,8 +67,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const ocrCount = document._count?.ocrPages || 0;
     const chunkCount = document._count?.chunks || 0;
     const latestJobStatus = document.processingJobs[0]?.status;
-    const dynamicOcrStatus = ocrCount > 0 ? 'COMPLETED' : latestJobStatus || 'QUEUED';
-    const classificationStatus = document.metadata ? 'COMPLETED' : 'QUEUED';
+    const dynamicOcrStatus = ocrCount > 0 ? 'COMPLETED' : latestJobStatus === 'PROCESSING' ? 'PROCESSING' : 'PENDING';
+    const classificationStatus = document.metadata ? 'COMPLETED' : 'PENDING';
     const embeddingStatus = chunkCount > 0 ? 'COMPLETED' : latestJobStatus === 'PROCESSING' ? 'PROCESSING' : 'PENDING';
 
     await logAuditEvent({
