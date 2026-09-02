@@ -149,7 +149,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           action: AuditAction.PROCESS_DOCUMENT,
           ipAddress,
           userAgent,
-          metadata: { action: 'REPROCESS', pagesCount: ocrResult.pages.length },
+          metadata: { action: 'REPROCESS', pagesCount: finalPages.length },
         });
       } catch (e) { console.warn('Audit log failed:', e); }
     })();
@@ -157,7 +157,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json(
       {
         message: 'Document reprocessed successfully',
-        result: { success: true, pagesCount: ocrResult.pages.length },
+        result: { success: true, pagesCount: finalPages.length },
       },
       { status: 200 }
     );
