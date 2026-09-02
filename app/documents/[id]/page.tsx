@@ -472,8 +472,7 @@ export default function DocumentDetailsPage() {
         if (current) URL.revokeObjectURL(current);
         return nextPreviewUrl;
       });
-      setPreviewMimeType(res.headers.get('content-type') || document.mimeType || blob.type || 'application/octet-stream');
-    } catch (err: any) {
+      setPreviewMimeType(res.headers.get('content-type') || document?.mimeType || blob.type || 'application/octet-stream');
       if (requestId !== previewLoadIdRef.current) return;
       setPreviewError(err.message || 'Failed to load document preview');
     } finally {
