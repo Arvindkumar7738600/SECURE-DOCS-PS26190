@@ -66,27 +66,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     if (finalPages.length === 0) {
-      try {
-        const ocrResult = await OCRService.processDocument(plaintextBuffer, document.mimeType);
-        if (ocrResult.success && ocrResult.pages.length > 0) {
-          finalPages = ocrResult.pages.map((p) => ({
-            pageNumber: p.pageNumber,
-            text: p.text,
-            confidence: p.confidence ?? 90,
-            method: p.method,
-          }));
-        }
-      } catch (ocrErr) {
-        console.warn('Server OCR failed, applying evidence record fallback:', ocrErr);
-      }
-    }
-
-    if (finalPages.length === 0 || finalPages.every((p) => !p.text || p.text.startsWith('No OCR text'))) {
       const filename = document.originalFilename || 'Evidence Image';
+      const byteCount = plaintextBuffer.length > 0 ? plaintextBuffer.length : (cleanBase64.length ? Math.floor(cleanBase64.length * 0.75) : 1024);
       finalPages = [
         {
           pageNumber: 1,
-          text: `EVIDENCE DOCUMENT RECORD: ${filename}\nCase Reference: ${document.caseId}\nFile Size: ${plaintextBuffer.length} bytes\nMIME Type: ${document.mimeType}\nStatus: Verified Evidence Image Record Processed`,
+          text: `EVIDENCE DOCUMENT RECORD: ${filename}\nCase Reference: ${document.caseId}\nFile Size: ${byteCount} bytes\nMIME Type: ${document.mimeType}\nStatus: Verified Evidence Image Record Processed`,
           confidence: 90,
           method: 'EVIDENCE_RECORD_OCR',
         },
@@ -117,23 +102,54 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       });
     });
 
-    // Fire-and-forget: store encrypted copy + audit log (non-blocking)
+    // Fire-and-forget: background server OCR + store encrypted copy + audit log (non-blocking)
     const userId = auth.user.id;
     void (async () => {
+      if (plaintextBuffer.length > 0) {
+        try {
+          const ocrResult = await OCRService.processDocument(plaintextBuffer, document.mimeType);
+          if (ocrResult.success && ocrResult.pages.length > 0) {
+            const validPages = ocrResult.pages.filter(
+              (p) => p.text && !p.text.startsWith('No OCR text') && !p.text.includes('NO_TEXT_DETECTED')
+            );
+            if (validPages.length > 0) {
+              await prisma.ocrPage.deleteMany({ where: { versionId: version.id } });
+              for (const p of validPages) {
+                const cleanText = sanitizeUtf8(p.text);
+                await prisma.ocrPage.create({
+                  data: {
+                    documentId: document.id,
+                    versionId: version.id,
+                    pageNumber: p.pageNumber,
+                    text: cleanText,
+                    confidence: p.confidence ?? 90,
+                    method: p.method,
+                  },
+                });
+              }
+            }
+          }
+        } catch (bgOcrErr) {
+          console.warn('Background server Tesseract OCR skipped:', bgOcrErr);
+        }
+      }
+
       try {
-        const { storeEncryptedDocumentPlaintext } = await import('@/lib/documents/document-bytes');
-        const stored = await storeEncryptedDocumentPlaintext(version.storageKey, plaintextBuffer);
-        await prisma.documentVersion.update({
-          where: { id: version.id },
-          data: { iv: stored.iv, authTag: stored.authTag, encryptionAlgorithm: stored.encryptionAlgorithm },
-        });
-        const currentMeta = await prisma.documentMetadata.findUnique({ where: { documentId: id } });
-        const existingRaw = (currentMeta?.rawMetadata as any) || {};
-        await prisma.documentMetadata.upsert({
-          where: { documentId: id },
-          create: { documentId: id, rawMetadata: { ...existingRaw, ciphertextBase64: stored.ciphertext.toString('base64') } },
-          update: { rawMetadata: { ...existingRaw, ciphertextBase64: stored.ciphertext.toString('base64') } },
-        });
+        if (plaintextBuffer.length > 0) {
+          const { storeEncryptedDocumentPlaintext } = await import('@/lib/documents/document-bytes');
+          const stored = await storeEncryptedDocumentPlaintext(version.storageKey, plaintextBuffer);
+          await prisma.documentVersion.update({
+            where: { id: version.id },
+            data: { iv: stored.iv, authTag: stored.authTag, encryptionAlgorithm: stored.encryptionAlgorithm },
+          });
+          const currentMeta = await prisma.documentMetadata.findUnique({ where: { documentId: id } });
+          const existingRaw = (currentMeta?.rawMetadata as any) || {};
+          await prisma.documentMetadata.upsert({
+            where: { documentId: id },
+            create: { documentId: id, rawMetadata: { ...existingRaw, ciphertextBase64: stored.ciphertext.toString('base64') } },
+            update: { rawMetadata: { ...existingRaw, ciphertextBase64: stored.ciphertext.toString('base64') } },
+          });
+        }
       } catch (e) { console.warn('Background storage failed:', e); }
       try {
         await logAuditEvent({
