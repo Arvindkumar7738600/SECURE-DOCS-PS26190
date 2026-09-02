@@ -101,6 +101,20 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function getBlobReferences(storageKey: string): string[] {
+  const references = [storageKey];
+
+  try {
+    const url = new URL(storageKey);
+    const pathname = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    if (pathname && pathname !== storageKey) references.push(pathname);
+  } catch {
+    // The database normally stores a pathname, not a URL.
+  }
+
+  return [...new Set(references)];
+}
+
 function resolveStoragePath(storageKey: string): string {
   if (!storageKey) {
     throw new DocumentStorageError('Document storage key is required', 'INVALID_STORAGE_KEY');
@@ -124,27 +138,66 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
     const token = getBlobToken()!;
     const storeId = getBlobStoreId();
     try {
-      const result = await list({ prefix: storageKey, limit: 1000, storeId, token });
-      const blob = result.blobs.find((item) => item.pathname === storageKey);
+      const tryGetBlob = async (reference: string, access: 'private' | 'public') => {
+        try {
+          return await get(reference, {
+            access,
+            storeId,
+            token,
+            useCache: false,
+          });
+        } catch {
+          // A legacy blob may reject the current store access mode; try the
+          // next representation before reporting the document as missing.
+          return null;
+        }
+      };
+
+      // Resolve by pathname first. This avoids relying on list pagination and
+      // supports records that already contain a full Blob URL.
+      for (const reference of getBlobReferences(storageKey)) {
+        const privateBlob = await tryGetBlob(reference, 'private');
+
+        if (privateBlob?.statusCode === 200 && privateBlob.stream) {
+          return {
+            ciphertext: Buffer.from(await new Response(privateBlob.stream).arrayBuffer()),
+            sourcePath: privateBlob.blob.url,
+          };
+        }
+      }
+
+      // Compatibility path for blobs created while the store was public.
+      for (const reference of getBlobReferences(storageKey)) {
+        const publicBlob = await tryGetBlob(reference, 'public');
+
+        if (publicBlob?.statusCode === 200 && publicBlob.stream) {
+          return {
+            ciphertext: Buffer.from(await new Response(publicBlob.stream).arrayBuffer()),
+            sourcePath: publicBlob.blob.url,
+          };
+        }
+      }
+
+      // Last-resort lookup handles legacy pathname/URL representation changes.
+      const result = await list({ prefix: getBlobReferences(storageKey)[0], limit: 1000, storeId, token });
+      const references = new Set(getBlobReferences(storageKey));
+      const blob = result.blobs.find(
+        (item) => references.has(item.pathname) || references.has(item.url)
+      );
       if (!blob) {
         throw new DocumentStorageError(
-          'Document storage is missing',
+          `Document storage is missing for "${storageKey}"`,
           'MISSING_DOCUMENT_STORAGE'
         );
       }
 
-      const response = await get(blob.url, {
-        access: 'private',
-        storeId,
-        token,
-        useCache: false,
-      });
-      if (!response || response.statusCode !== 200 || !response.stream) {
-        throw new Error('Blob download returned no document content');
+      const legacyBlob = await tryGetBlob(blob.url, 'public');
+      if (!legacyBlob || legacyBlob.statusCode !== 200 || !legacyBlob.stream) {
+        throw new Error('Blob lookup found metadata but returned no document content');
       }
 
       return {
-        ciphertext: Buffer.from(await new Response(response.stream).arrayBuffer()),
+        ciphertext: Buffer.from(await new Response(legacyBlob.stream).arrayBuffer()),
         sourcePath: blob.url,
       };
     } catch (error) {

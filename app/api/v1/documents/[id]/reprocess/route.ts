@@ -60,6 +60,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       metadata: { action: 'REPROCESS', resultSuccess: result.success },
     });
 
+    if (!result.success) {
+      return NextResponse.json(
+        { success: false, error: result.error || 'Document reprocessing failed.' },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json(
       { success: true, message: 'Document reprocessed successfully', result },
       { status: 200 }
