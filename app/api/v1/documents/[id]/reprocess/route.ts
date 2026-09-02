@@ -93,6 +93,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
 
     // Fire-and-forget: store encrypted copy + audit log (non-blocking)
+    const userId = auth.user.id;
     void (async () => {
       try {
         const { storeEncryptedDocumentPlaintext } = await import('@/lib/documents/document-bytes');
@@ -111,7 +112,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       } catch (e) { console.warn('Background storage failed:', e); }
       try {
         await logAuditEvent({
-          userId: auth.user.id,
+          userId,
           documentId: id,
           action: AuditAction.PROCESS_DOCUMENT,
           ipAddress,
