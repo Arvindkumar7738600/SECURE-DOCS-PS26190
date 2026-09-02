@@ -12,16 +12,19 @@ interface RouteParams {
 }
 
 export async function POST(req: NextRequest, { params }: RouteParams) {
-  const { id } = params;
-  const ipAddress = req.headers.get('x-forwarded-for') || '127.0.0.1';
-  const userAgent = req.headers.get('user-agent') || 'Internal';
-
-  const auth = await authorizeRequest(req, 'DOCUMENT_UPLOAD');
-  if (!auth.authorized || !auth.user) {
-    return auth.errorResponse || NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   try {
+    const { id } = params;
+    const ipAddress = req.headers.get('x-forwarded-for') || '127.0.0.1';
+    const userAgent = req.headers.get('user-agent') || 'Internal';
+
+    const auth = await authorizeRequest(req, 'DOCUMENT_UPLOAD');
+    if (!auth.authorized || !auth.user) {
+      return auth.errorResponse || NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const hasAccess = await canAccessDocument(auth.user.id, auth.user.roles, id);
     if (!hasAccess) {
       return NextResponse.json({ error: 'Document not found or access denied' }, { status: 404 });
@@ -58,11 +61,17 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
 
     return NextResponse.json(
-      { message: 'Document reprocessed successfully', result },
+      { success: true, message: 'Document reprocessed successfully', result },
       { status: 200 }
     );
   } catch (error: any) {
     console.error('Reprocess Document API error:', error);
-    return NextResponse.json({ error: 'Internal server error reprocessing document' }, { status: 500 });
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
   }
 }
