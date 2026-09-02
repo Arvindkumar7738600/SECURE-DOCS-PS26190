@@ -206,8 +206,11 @@ export async function verifyDocumentIntegrity(
   version: DocumentVersionBytesInput,
   expectedSha256: string
 ): Promise<DocumentIntegrityResult> {
-  const resolvedBytes = await loadStoredDocumentCiphertext(version.storageKey);
-  const computedSha256 = calculateSha256(resolvedBytes.ciphertext);
+  // Load and decrypt the document to get the true original plaintext bytes
+  const resolvedBytes = await loadDocumentPlaintext(version);
+
+  // Calculate SHA-256 on the decrypted plaintext (matching the original upload hash)
+  const computedSha256 = calculateSha256(resolvedBytes.plaintext);
   const normalizedExpected = expectedSha256.toLowerCase();
   const status = computedSha256 === normalizedExpected ? 'VERIFIED' : 'MISMATCH';
 
