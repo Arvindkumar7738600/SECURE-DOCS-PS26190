@@ -76,7 +76,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       try {
         const ocrResult = await OCRService.processDocument(plaintextBuffer, document.mimeType);
         if (ocrResult.success && ocrResult.pages.length > 0) {
-          finalPages = ocrResult.pages;
+          finalPages = ocrResult.pages.map((p) => ({
+            pageNumber: p.pageNumber,
+            text: p.text,
+            confidence: p.confidence ?? 90,
+            method: p.method,
+          }));
         }
       } catch (ocrErr) {
         console.warn('Server OCR failed, applying evidence record fallback:', ocrErr);
