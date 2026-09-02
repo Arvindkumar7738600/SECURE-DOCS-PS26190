@@ -17,8 +17,13 @@ export function getDocumentEncryptionKey(): Buffer {
   const rawKey =
     process.env.DOCUMENT_ENCRYPTION_KEY ||
     process.env.ENCRYPTION_KEY ||
-    process.env.ENCRYPTION_MASTER_KEY ||
-    '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    process.env.ENCRYPTION_MASTER_KEY;
+
+  if (!rawKey) {
+    throw new Error(
+      'CRITICAL SECURITY ERROR: DOCUMENT_ENCRYPTION_KEY, ENCRYPTION_KEY, or ENCRYPTION_MASTER_KEY is required'
+    );
+  }
 
   let keyBuffer: Buffer;
   // If hex string of 64 hex characters (32 bytes)

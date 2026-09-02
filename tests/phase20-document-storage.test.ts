@@ -41,8 +41,13 @@ async function runPhase20DocumentStorageTests() {
     assert.equal(uploadResult.storageSource, 'filesystem', 'Upload should persist to filesystem storage');
     assert.equal(await fs.readFile(storedPath).then((buffer) => buffer.length > 0), true, 'Stored bytes must exist on disk');
 
-    const storedHash = await calculateDocumentSha256({ storageKey });
-    assert.equal(uploadResult.sha256, storedHash.sha256, 'Persisted hash should be based on actual stored bytes');
+    const storedHash = await calculateDocumentSha256({
+      storageKey,
+      encryptionAlgorithm: uploadResult.encryptionAlgorithm,
+      iv: uploadResult.iv,
+      authTag: uploadResult.authTag,
+    });
+    assert.equal(uploadResult.sha256, storedHash.sha256, 'Persisted hash should be based on original plaintext bytes');
 
     const downloaded = await loadDocumentPlaintext({
       storageKey,
@@ -85,17 +90,19 @@ async function runPhase20DocumentStorageTests() {
     tamperedBytes[0] = tamperedBytes[0] ^ 0xff;
     await fs.writeFile(tamperPath, tamperedBytes);
 
-    const tamperIntegrity = await verifyDocumentIntegrity(
-      {
-        storageKey,
-        encryptionAlgorithm: tamperUpload.encryptionAlgorithm,
-        iv: tamperUpload.iv,
-        authTag: tamperUpload.authTag,
-      },
-      tamperUpload.sha256
+    await assert.rejects(
+      () =>
+        verifyDocumentIntegrity(
+          {
+            storageKey,
+            encryptionAlgorithm: tamperUpload.encryptionAlgorithm,
+            iv: tamperUpload.iv,
+            authTag: tamperUpload.authTag,
+          },
+          tamperUpload.sha256
+        ),
+      /decryption failed|Authentication Failed|tampered/i
     );
-
-    assert.equal(tamperIntegrity.status, 'MISMATCH', 'Tampered storage must not verify');
     await assert.rejects(
       () =>
         loadDocumentPlaintext({
@@ -116,4 +123,3 @@ runPhase20DocumentStorageTests().catch((error) => {
   console.error('❌ Phase 20 document storage test failure:', error);
   process.exit(1);
 });
-

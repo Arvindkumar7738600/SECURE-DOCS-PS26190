@@ -42,6 +42,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         uploader: { select: { id: true, fullName: true, email: true, department: true } },
         versions: {
           orderBy: { versionNumber: 'desc' },
+          take: 1,
           select: {
             id: true,
             versionNumber: true,
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         },
         metadata: true,
         processingJobs: { orderBy: { createdAt: 'desc' }, take: 1 },
-        _count: { select: { ocrPages: true, chunks: true } },
+        _count: { select: { ocrPages: true, chunks: true, versions: true } },
       },
     });
 
@@ -107,7 +108,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           createdAt: document.createdAt,
           updatedAt: document.updatedAt,
           metadata: document.metadata,
-          versionsCount: document.versions.length,
+          versionsCount: document._count?.versions || 0,
           latestJob: document.processingJobs[0] || null,
         },
       },

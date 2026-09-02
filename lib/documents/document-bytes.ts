@@ -45,8 +45,6 @@ export class DocumentStorageError extends Error {
 }
 
 const DEFAULT_STORAGE_ROOT = path.join(process.cwd(), 'storage', 'documents');
-const ZERO_IV = '000000000000000000000000';
-const ZERO_AUTH_TAG = '00000000000000000000000000000000';
 
 export function getDocumentStorageRoot(): string {
   if (process.env.DOCUMENT_STORAGE_DIR) {
@@ -91,20 +89,20 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
       try {
         const ciphertext = await fs.readFile(tmpFallbackPath);
         return { ciphertext, sourcePath: tmpFallbackPath };
-      } catch {
-        // Fallback to synthetic vault buffer for legacy records or cold container restarts
+      } catch (fallbackError: any) {
+        throw new DocumentStorageError(
+          'Document storage is missing',
+          'MISSING_DOCUMENT_STORAGE',
+          fallbackError
+        );
       }
-
-      const syntheticFallback = Buffer.from(
-        '[CASE EVIDENCE RECORD] Scanned document evidence record verified with SHA-256 integrity.'
-      );
-      return { ciphertext: syntheticFallback, sourcePath: filePath };
     }
 
-    const syntheticFallback = Buffer.from(
-      '[CASE EVIDENCE RECORD] Scanned document evidence record verified with SHA-256 integrity.'
+    throw new DocumentStorageError(
+      'Document storage could not be read',
+      'CORRUPT_DOCUMENT_STORAGE',
+      error
     );
-    return { ciphertext: syntheticFallback, sourcePath: filePath };
   }
 }
 
@@ -142,7 +140,9 @@ export async function storeEncryptedDocumentPlaintext(
   const encrypted = encryptDocument(plaintext);
   const result = await storeDocumentCiphertext(storageKey, encrypted.encryptedBuffer);
   return {
-    ...result,
+    sourcePath: result.sourcePath,
+    sha256: calculateSha256(plaintext),
+    storageSource: result.storageSource,
     encryptionAlgorithm: encrypted.algorithm,
     iv: encrypted.iv,
     authTag: encrypted.authTag,
@@ -162,22 +162,24 @@ export async function loadStoredDocumentCiphertext(storageKey: string): Promise<
 export async function loadDocumentPlaintext(version: DocumentVersionBytesInput): Promise<ResolvedDocumentBytes> {
   const storedBytes = await loadStoredDocumentCiphertext(version.storageKey);
 
-  const shouldDecrypt =
-    version.encryptionAlgorithm === 'AES-256-GCM' &&
-    version.iv !== undefined &&
-    version.authTag !== undefined &&
-    version.iv !== ZERO_IV &&
-    version.authTag !== ZERO_AUTH_TAG;
+  const shouldDecrypt = version.encryptionAlgorithm?.toUpperCase() === 'AES-256-GCM';
 
   if (!shouldDecrypt) {
     return storedBytes;
   }
 
+  if (!version.iv || !version.authTag) {
+    throw new DocumentStorageError(
+      'Encrypted document metadata is incomplete',
+      'CORRUPT_DOCUMENT_STORAGE'
+    );
+  }
+
   try {
     const plaintext = decryptDocument(
       storedBytes.ciphertext,
-      version.iv || ZERO_IV,
-      version.authTag || ZERO_AUTH_TAG
+      version.iv,
+      version.authTag
     );
 
     return {
@@ -185,18 +187,18 @@ export async function loadDocumentPlaintext(version: DocumentVersionBytesInput):
       plaintext,
     };
   } catch (decryptError: any) {
-    console.warn('AES-256-GCM decryption mismatch fallback triggered:', decryptError?.message || decryptError);
-    return {
-      ...storedBytes,
-      plaintext: storedBytes.ciphertext,
-    };
+    throw new DocumentStorageError(
+      'Document decryption failed or the stored document was tampered with',
+      'CORRUPT_DOCUMENT_STORAGE',
+      decryptError
+    );
   }
 }
 
 export async function calculateDocumentSha256(version: DocumentVersionBytesInput): Promise<{ sha256: string; sourcePath: string; storageSource: ResolvedDocumentBytes['storageSource'] }> {
-  const resolvedBytes = await loadStoredDocumentCiphertext(version.storageKey);
+  const resolvedBytes = await loadDocumentPlaintext(version);
   return {
-    sha256: calculateSha256(resolvedBytes.ciphertext),
+    sha256: calculateSha256(resolvedBytes.plaintext),
     sourcePath: resolvedBytes.sourcePath,
     storageSource: resolvedBytes.storageSource,
   };

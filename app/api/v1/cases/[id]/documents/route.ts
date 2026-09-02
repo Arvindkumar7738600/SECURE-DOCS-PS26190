@@ -8,7 +8,6 @@ import { getOrCreateRequestId, requestIdHeader } from '@/lib/observability/reque
 import { safeError } from '@/lib/observability/safe-logger';
 import { getEmbeddingStatus, rankDocumentsBySemanticRelevance } from '@/lib/embeddings/semantic-search';
 import {
-  calculateDocumentSha256,
   storeEncryptedDocumentPlaintext,
   DocumentStorageError,
 } from '@/lib/documents/document-bytes';
@@ -105,7 +104,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const storedDocument = await storeEncryptedDocumentPlaintext(storageKey, plaintextBuffer);
     storedDocumentPath = storedDocument.sourcePath;
-    const serverHashResult = await calculateDocumentSha256({ storageKey });
 
     // Atomic Prisma Transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -130,7 +128,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           documentId: doc.id,
           versionNumber: 1,
           storageKey,
-          sha256: serverHashResult.sha256,
+          // Hash the original bytes, never the encrypted storage representation.
+          sha256: storedDocument.sha256,
           encryptionAlgorithm: storedDocument.encryptionAlgorithm,
           encryptionVersion: 1,
           iv: storedDocument.iv,
@@ -203,8 +202,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         filename: sanitizedName,
         fileSize,
         claimedSha256: claimedSha256 || null,
-        serverSha256: serverHashResult.sha256,
-        storageSource: serverHashResult.storageSource,
+        serverSha256: storedDocument.sha256,
+        storageSource: storedDocument.storageSource,
         version: 1,
       },
     });
@@ -223,6 +222,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       { status: 201, headers: { [requestIdHeader()]: requestId } }
     );
   } catch (error: any) {
+    if (storedDocumentPath) {
+      await fs.rm(storedDocumentPath, { force: true }).catch(() => undefined);
+    }
+
     if (error instanceof DocumentStorageError) {
       safeError('Document storage error during upload', error, requestId);
       return NextResponse.json(
@@ -232,9 +235,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     safeError('Complete Document Upload API error', error, requestId);
-    if (storedDocumentPath) {
-      await fs.rm(storedDocumentPath, { force: true }).catch(() => undefined);
-    }
     return NextResponse.json(
       {
         error: error?.message || 'Internal server error completing document upload',

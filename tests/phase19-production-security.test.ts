@@ -66,8 +66,7 @@ async function runPhase19ProductionSecurityTests() {
       const encrypted = encryptDocument(plaintext);
       await fs.writeFile(filePath, encrypted.encryptedBuffer);
 
-      const storedCiphertext = await fs.readFile(filePath);
-      const expectedStoredHash = calculateSha256(storedCiphertext);
+      const expectedPlaintextHash = calculateSha256(plaintext);
 
       const integrityResult = await verifyDocumentIntegrity(
         {
@@ -76,33 +75,39 @@ async function runPhase19ProductionSecurityTests() {
           iv: encrypted.iv,
           authTag: encrypted.authTag,
         },
-        expectedStoredHash
+        expectedPlaintextHash
       );
 
-      const serverHash = await calculateDocumentSha256({ storageKey });
+      const serverHash = await calculateDocumentSha256({
+        storageKey,
+        encryptionAlgorithm: encrypted.algorithm,
+        iv: encrypted.iv,
+        authTag: encrypted.authTag,
+      });
 
-      assert.equal(integrityResult.status, 'VERIFIED', 'Server-side hash should match the stored bytes');
-      assert.equal(integrityResult.computedSha256, expectedStoredHash);
-      assert.equal(serverHash.sha256, expectedStoredHash);
-      console.log('✅ Document hash is computed from stored bytes');
+      assert.equal(integrityResult.status, 'VERIFIED', 'Server-side hash should match the original plaintext');
+      assert.equal(integrityResult.computedSha256, expectedPlaintextHash);
+      assert.equal(serverHash.sha256, expectedPlaintextHash);
+      console.log('✅ Document hash is computed from original plaintext');
 
       const tamperedCiphertext = Buffer.from(encrypted.encryptedBuffer);
       tamperedCiphertext[0] = tamperedCiphertext[0] ^ 0xff;
       await fs.writeFile(filePath, tamperedCiphertext);
 
-      const tamperResult = await verifyDocumentIntegrity(
-        {
-          storageKey,
-          encryptionAlgorithm: encrypted.algorithm,
-          iv: encrypted.iv,
-          authTag: encrypted.authTag,
-        },
-        expectedStoredHash
+      await assert.rejects(
+        () =>
+          verifyDocumentIntegrity(
+            {
+              storageKey,
+              encryptionAlgorithm: encrypted.algorithm,
+              iv: encrypted.iv,
+              authTag: encrypted.authTag,
+            },
+            expectedPlaintextHash
+          ),
+        /decryption failed|Authentication Failed|tampered/i
       );
-
-      assert.equal(tamperResult.status, 'MISMATCH', 'Tampered ciphertext must be detected');
-      assert.notEqual(tamperResult.computedSha256, expectedStoredHash, 'Tampered content should change the computed hash');
-      console.log('✅ Tampered document content is detected');
+      console.log('✅ Tampered ciphertext is rejected by GCM authentication');
     } finally {
       process.env.DOCUMENT_ENCRYPTION_KEY = originalDocumentKey;
     }
