@@ -35,7 +35,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Document not found or access denied' }, { status: 404 });
     }
 
-    const result = await ProcessingService.processDocumentJob(id);
+    let result: { success: boolean; pagesCount: number; error?: string };
+    try {
+      result = await ProcessingService.processDocumentJob(id);
+    } catch (procErr: any) {
+      console.error('ProcessingService.processDocumentJob threw:', procErr?.message);
+      return NextResponse.json(
+        {
+          error: 'File bytes are not available on the server. Please click "Re-upload Evidence File" to select your image and extract text.',
+        },
+        { status: 422 }
+      );
+    }
 
     await logAuditEvent({
       userId: auth.user.id,

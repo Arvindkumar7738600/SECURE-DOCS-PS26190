@@ -70,8 +70,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           data: { status: 'COMPLETED' },
         });
         document.status = 'COMPLETED' as any;
-        const { ProcessingService } = await import('@/lib/processing/processing-service');
-        void ProcessingService.processDocumentJob(document.id).catch(() => {});
+        // Do NOT call ProcessingService.processDocumentJob here — file bytes
+        // are not available on Vercel serverless. User must re-upload via the UI.
       } catch (e) {
         console.warn('Auto-healing document status failed:', e);
       }
