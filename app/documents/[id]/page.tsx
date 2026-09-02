@@ -638,6 +638,15 @@ export default function DocumentDetailsPage() {
         description={headerDescription}
       />
 
+      {/* Hidden file input — must be outside tab content so it's always in the DOM */}
+      <input
+        type="file"
+        ref={reuploadInputRef}
+        style={{ display: 'none' }}
+        accept="image/*,application/pdf,text/plain"
+        onChange={handleReuploadFile}
+      />
+
       {bannerError ? <ErrorState title="Action failed" description={bannerError} /> : null}
       {verificationResult ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-emerald-900">
@@ -932,17 +941,10 @@ export default function DocumentDetailsPage() {
                     </SecondaryButton>
                   </React.Fragment>
                 ) : null}
-                <input
-                  type="file"
-                  ref={reuploadInputRef}
-                  style={{ display: 'none' }}
-                  accept="image/*,application/pdf,text/plain"
-                  onChange={handleReuploadFile}
-                />
                 {canEditMetadata ? (
-                  <SecondaryButton type="button" onClick={() => reuploadInputRef.current?.click()} disabled={reuploading}>
+                  <SecondaryButton type="button" onClick={() => reuploadInputRef.current?.click()} disabled={processingOcr}>
                     <Upload className="h-4 w-4" />
-                    {reuploading ? 'Uploading...' : 'Re-upload Evidence File'}
+                    {processingOcr ? 'Processing...' : 'Re-upload Evidence File'}
                   </SecondaryButton>
                 ) : null}
                 <PrimaryButton type="button" onClick={handleProcessOcr} disabled={processingOcr}>
