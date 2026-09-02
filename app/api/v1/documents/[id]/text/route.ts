@@ -50,12 +50,26 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       },
     });
 
+    const sanitizedPages = pages.map((p) => {
+      const isPlaceholder =
+        !p.text ||
+        p.text.includes('[CASE EVIDENCE RECORD]') ||
+        p.text.includes('[SCANNED EVIDENCE IMAGE]') ||
+        p.text.includes('Digital evidence image record verified');
+      return {
+        ...p,
+        text: isPlaceholder
+          ? 'No OCR text extracted yet. Click "Re-upload Evidence File" or "Run OCR Pipeline" to extract text from your evidence image.'
+          : p.text,
+      };
+    });
+
     return NextResponse.json(
       {
         documentId: id,
         versionNumber: version.versionNumber,
-        totalPages: pages.length,
-        pages,
+        totalPages: sanitizedPages.length,
+        pages: sanitizedPages,
       },
       { status: 200, headers: { [requestIdHeader()]: requestId } }
     );

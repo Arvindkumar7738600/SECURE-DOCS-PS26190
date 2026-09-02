@@ -138,15 +138,11 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
       }
 
       // Legacy fallback for documents uploaded before serverless persistence was enabled
-      const syntheticFallback = Buffer.from(
-        '[CASE EVIDENCE RECORD] Scanned document evidence record verified with SHA-256 integrity.'
-      );
+      const syntheticFallback = Buffer.from('');
       return { ciphertext: syntheticFallback, sourcePath: 'synthetic_vault' };
     }
 
-    const syntheticFallback = Buffer.from(
-      '[CASE EVIDENCE RECORD] Scanned document evidence record verified with SHA-256 integrity.'
-    );
+    const syntheticFallback = Buffer.from('');
     return { ciphertext: syntheticFallback, sourcePath: 'synthetic_vault' };
   }
 }
