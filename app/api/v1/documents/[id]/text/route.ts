@@ -52,15 +52,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     const sanitizedPages = pages.map((p) => {
       const textVal = p.text || '';
-      const isReplacementGibberish =
-        textVal.includes('\uFFFD') ||
+      const hasGibberishChars =
         textVal.includes('cCfCj') ||
+        textVal.includes('') ||
+        textVal.includes('\uFFFD') ||
         textVal.includes('?') ||
-        /[^\x20-\x7E\n\r\t]{5,}/.test(textVal);
+        /[^\x20-\x7E\n\r\t]/.test(textVal) ||
+        (/[^a-zA-Z0-9\s.,?!'\":;\-()]{6,}/.test(textVal) &&
+          !/\b(the|and|for|with|case|court|police|station|document|evidence|record|section|act|vs|state|high|supreme|bank|account|number|date|fir|page|text|scanned|image|record|verified)\b/i.test(textVal));
 
       const isPlaceholder =
         !textVal ||
-        isReplacementGibberish ||
+        hasGibberishChars ||
         textVal.includes('[CASE EVIDENCE RECORD]') ||
         textVal.includes('[SCANNED EVIDENCE IMAGE]') ||
         textVal.includes('Digital evidence image record verified');
@@ -72,6 +75,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           : textVal,
       };
     });
+
+    if (sanitizedPages.some((p) => p.text.startsWith('No OCR text extracted yet'))) {
+      await prisma.ocrPage.deleteMany({ where: { versionId: version.id } }).catch(() => {});
+    }
 
     return NextResponse.json(
       {
