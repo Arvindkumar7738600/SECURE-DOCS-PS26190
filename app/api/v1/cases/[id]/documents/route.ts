@@ -5,7 +5,7 @@ import { prisma } from '@/lib/db/prisma';
 import { logAuditEvent } from '@/lib/audit/logger';
 import { AuditAction, DocumentType, ProcessingStatus, Prisma } from '@prisma/client';
 import { getOrCreateRequestId, requestIdHeader } from '@/lib/observability/request-id';
-import { safeError } from '@/lib/observability/safe-logger';
+import { safeError, safeInfo } from '@/lib/observability/safe-logger';
 import { getEmbeddingStatus, rankDocumentsBySemanticRelevance } from '@/lib/embeddings/semantic-search';
 import {
   storeEncryptedDocumentPlaintext,
@@ -104,6 +104,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const storedDocument = await storeEncryptedDocumentPlaintext(storageKey, plaintextBuffer);
     storedDocumentPath = storedDocument.sourcePath;
+    safeInfo(
+      'Document persisted to storage',
+      {
+        storagePath: storedDocument.storageKey,
+        storageUrl: storedDocument.sourcePath,
+        storageSource: storedDocument.storageSource,
+      },
+      requestId
+    );
 
     // Atomic Prisma Transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -127,7 +136,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         data: {
           documentId: doc.id,
           versionNumber: 1,
-          storageKey,
+          storageKey: storedDocument.storageKey,
           // Hash the original bytes, never the encrypted storage representation.
           sha256: storedDocument.sha256,
           encryptionAlgorithm: storedDocument.encryptionAlgorithm,
@@ -149,7 +158,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             fileSize: Number(fileSize),
             originalFilename: sanitizedName,
             mimeType,
-            storageKey,
+            storageKey: storedDocument.storageKey,
             encryptionStatus: 'AES-256-GCM',
           },
         },
@@ -160,7 +169,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             fileSize: Number(fileSize),
             originalFilename: sanitizedName,
             mimeType,
-            storageKey,
+            storageKey: storedDocument.storageKey,
             encryptionStatus: 'AES-256-GCM',
           },
         },
@@ -213,7 +222,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         message: 'Document uploaded and registered successfully',
         document: {
           ...result.doc,
-          storageKey,
+          storageKey: storedDocument.storageKey,
           sha256: result.version.sha256,
           encryptionStatus: 'AES-256-GCM',
           processingStatus: 'Queued for processing',

@@ -102,7 +102,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 function getBlobReferences(storageKey: string): string[] {
-  const references = [storageKey];
+  const references = [normalizeStoragePath(storageKey), storageKey];
 
   try {
     const url = new URL(storageKey);
@@ -113,6 +113,19 @@ function getBlobReferences(storageKey: string): string[] {
   }
 
   return [...new Set(references)];
+}
+
+export function normalizeStoragePath(storageKey: string): string {
+  if (!storageKey) {
+    throw new DocumentStorageError('Document storage key is required', 'INVALID_STORAGE_KEY');
+  }
+
+  try {
+    const url = new URL(storageKey);
+    return decodeURIComponent(url.pathname).replace(/^\/+/, '');
+  } catch {
+    return storageKey.replace(/^\/+/, '');
+  }
 }
 
 function resolveStoragePath(storageKey: string): string {
@@ -132,6 +145,7 @@ function resolveStoragePath(storageKey: string): string {
 }
 
 async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer; sourcePath: string }> {
+  const canonicalStorageKey = normalizeStoragePath(storageKey);
   const storageBackend = assertStorageConfiguration();
 
   if (storageBackend === 'vercel-blob') {
@@ -179,14 +193,14 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
       }
 
       // Last-resort lookup handles legacy pathname/URL representation changes.
-      const result = await list({ prefix: getBlobReferences(storageKey)[0], limit: 1000, storeId, token });
+      const result = await list({ prefix: canonicalStorageKey, limit: 1000, storeId, token });
       const references = new Set(getBlobReferences(storageKey));
       const blob = result.blobs.find(
         (item) => references.has(item.pathname) || references.has(item.url)
       );
       if (!blob) {
         throw new DocumentStorageError(
-          `Document storage is missing for "${storageKey}"`,
+          `Document storage is missing for "${canonicalStorageKey}"`,
           'MISSING_DOCUMENT_STORAGE'
         );
       }
@@ -210,7 +224,7 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
     }
   }
 
-  const filePath = resolveStoragePath(storageKey);
+  const filePath = resolveStoragePath(canonicalStorageKey);
 
   try {
     const ciphertext = await fs.readFile(filePath);
@@ -218,7 +232,7 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
   } catch (error: any) {
     if (error?.code === 'ENOENT') {
       // Check fallback /tmp path
-      const tmpFallbackPath = path.resolve(os.tmpdir(), 'storage', 'documents', storageKey);
+      const tmpFallbackPath = path.resolve(os.tmpdir(), 'storage', 'documents', canonicalStorageKey);
       try {
         const ciphertext = await fs.readFile(tmpFallbackPath);
         return { ciphertext, sourcePath: tmpFallbackPath };
@@ -239,14 +253,15 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
   }
 }
 
-export async function storeDocumentCiphertext(storageKey: string, ciphertext: Buffer): Promise<{ sourcePath: string; sha256: string; storageSource: ResolvedDocumentBytes['storageSource'] }> {
+export async function storeDocumentCiphertext(storageKey: string, ciphertext: Buffer): Promise<{ storageKey: string; sourcePath: string; sha256: string; storageSource: ResolvedDocumentBytes['storageSource'] }> {
+  const canonicalStorageKey = normalizeStoragePath(storageKey);
   const storageBackend = assertStorageConfiguration();
 
   if (storageBackend === 'vercel-blob') {
     const token = getBlobToken()!;
     const storeId = getBlobStoreId();
     try {
-      const blob = await put(storageKey, ciphertext, {
+      const blob = await put(canonicalStorageKey, ciphertext, {
         access: 'private',
         storeId,
         addRandomSuffix: false,
@@ -254,7 +269,14 @@ export async function storeDocumentCiphertext(storageKey: string, ciphertext: Bu
         token,
       });
 
+      if (blob.pathname !== canonicalStorageKey) {
+        throw new Error(
+          `Blob pathname mismatch: requested "${canonicalStorageKey}", received "${blob.pathname}"`
+        );
+      }
+
       return {
+        storageKey: blob.pathname,
         sourcePath: blob.url,
         sha256: calculateSha256(ciphertext),
         storageSource: 'vercel-blob',
@@ -268,19 +290,20 @@ export async function storeDocumentCiphertext(storageKey: string, ciphertext: Bu
     }
   }
 
-  let filePath = resolveStoragePath(storageKey);
+  let filePath = resolveStoragePath(canonicalStorageKey);
   try {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, ciphertext);
   } catch (err: any) {
     // If writing to default root fails (e.g. read-only filesystem on serverless /var/task), fallback to /tmp
     const fallbackRoot = path.join(os.tmpdir(), 'storage', 'documents');
-    filePath = path.resolve(fallbackRoot, storageKey);
+    filePath = path.resolve(fallbackRoot, canonicalStorageKey);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, ciphertext);
   }
 
   return {
+    storageKey: canonicalStorageKey,
     sourcePath: filePath,
     sha256: calculateSha256(ciphertext),
     storageSource: 'filesystem',
@@ -291,6 +314,7 @@ export async function storeEncryptedDocumentPlaintext(
   storageKey: string,
   plaintext: Buffer
 ): Promise<{
+  storageKey: string;
   sourcePath: string;
   sha256: string;
   storageSource: ResolvedDocumentBytes['storageSource'];
@@ -301,6 +325,7 @@ export async function storeEncryptedDocumentPlaintext(
   const encrypted = encryptDocument(plaintext);
   const result = await storeDocumentCiphertext(storageKey, encrypted.encryptedBuffer);
   return {
+    storageKey: result.storageKey,
     sourcePath: result.sourcePath,
     sha256: calculateSha256(plaintext),
     storageSource: result.storageSource,
@@ -311,7 +336,8 @@ export async function storeEncryptedDocumentPlaintext(
 }
 
 export async function loadStoredDocumentCiphertext(storageKey: string): Promise<ResolvedDocumentBytes> {
-  const stored = await readStoredBytes(storageKey);
+  const canonicalStorageKey = normalizeStoragePath(storageKey);
+  const stored = await readStoredBytes(canonicalStorageKey);
   return {
     ciphertext: stored.ciphertext,
     plaintext: stored.ciphertext,
