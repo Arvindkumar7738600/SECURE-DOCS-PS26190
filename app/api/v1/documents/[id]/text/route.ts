@@ -68,3 +68,56 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     );
   }
 }
+
+export async function PATCH(req: NextRequest, { params }: RouteParams) {
+  const { id } = params;
+  const requestId = getOrCreateRequestId(req.headers.get(requestIdHeader()));
+
+  const auth = await authorizeRequest(req, 'DOCUMENT_UPDATE');
+  if (!auth.authorized || !auth.user) {
+    return jsonResponseWithRequestId({ error: 'Unauthorized' }, 401, requestId);
+  }
+
+  try {
+    const hasAccess = await canAccessDocument(auth.user.id, auth.user.roles, id);
+    if (!hasAccess) {
+      return jsonResponseWithRequestId({ error: 'Document not found or access denied' }, 404, requestId);
+    }
+
+    const body = await req.json();
+    const { pageNumber, text } = body;
+
+    if (typeof pageNumber !== 'number' || typeof text !== 'string') {
+      return jsonResponseWithRequestId({ error: 'pageNumber (number) and text (string) are required' }, 400, requestId);
+    }
+
+    const document = await prisma.document.findUnique({
+      where: { id },
+      include: { versions: { orderBy: { versionNumber: 'desc' }, take: 1 } },
+    });
+
+    if (!document || document.versions.length === 0) {
+      return jsonResponseWithRequestId({ error: 'Document record not found' }, 404, requestId);
+    }
+
+    const version = document.versions[0];
+
+    const updated = await prisma.ocrPage.updateMany({
+      where: { versionId: version.id, pageNumber },
+      data: { text: text.trim() },
+    });
+
+    return jsonResponseWithRequestId(
+      { message: 'OCR page text updated successfully', count: updated.count },
+      200,
+      requestId
+    );
+  } catch (error: any) {
+    console.error('PATCH Document Text API error:', error);
+    return jsonResponseWithRequestId(
+      { error: 'Internal server error updating document text' },
+      500,
+      requestId
+    );
+  }
+}

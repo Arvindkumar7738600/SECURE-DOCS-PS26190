@@ -8,8 +8,10 @@ import {
   ArrowRight,
   Building2,
   Calendar,
+  Check,
   CheckCircle2,
   ClipboardCopy,
+  Copy,
   Cpu,
   Download,
   Edit3,
@@ -20,6 +22,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   Share2,
   ShieldCheck,
   Sparkles,
@@ -164,10 +167,72 @@ export default function DocumentDetailsPage() {
   const [shareExpiresInDays, setShareExpiresInDays] = useState('');
   const [sharing, setSharing] = useState(false);
   const [copiedHash, setCopiedHash] = useState(false);
+  const [ocrSearchQuery, setOcrSearchQuery] = useState('');
+  const [copiedOcrText, setCopiedOcrText] = useState(false);
+  const [editingPageNumber, setEditingPageNumber] = useState<number | null>(null);
+  const [editedPageText, setEditedPageText] = useState('');
+  const [savingOcrText, setSavingOcrText] = useState(false);
 
   const canEditMetadata = userRoles.some((r) => ['ADMIN', 'INVESTIGATOR', 'OFFICER', 'LEGAL'].includes(r));
   const canSign = userRoles.some((r) => ['ADMIN', 'INVESTIGATOR'].includes(r));
   const canShare = userRoles.some((r) => ['ADMIN', 'INVESTIGATOR', 'LEGAL'].includes(r));
+
+  // Auto-polling when document is processing
+  useEffect(() => {
+    if (!document || document.status !== 'PROCESSING') return;
+    const interval = setInterval(() => {
+      fetchDocumentDetails();
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [document?.status, documentId]);
+
+  const handleCopyOcrText = () => {
+    const fullText = ocrPages.map((p) => `--- Page ${p.pageNumber} ---\n${p.text}`).join('\n\n');
+    navigator.clipboard.writeText(fullText);
+    setCopiedOcrText(true);
+    setTimeout(() => setCopiedOcrText(false), 2000);
+  };
+
+  const handleExportOcr = (format: 'txt' | 'json') => {
+    let content = '';
+    let mime = 'text/plain';
+    const filename = `${document?.originalFilename || 'document'}_ocr.${format}`;
+
+    if (format === 'json') {
+      content = JSON.stringify({ documentId, totalPages: ocrPages.length, pages: ocrPages }, null, 2);
+      mime = 'application/json';
+    } else {
+      content = ocrPages.map((p) => `--- Page ${p.pageNumber} ---\n${p.text}`).join('\n\n');
+    }
+
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = window.document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSaveEditedOcrPage = async (pageNumber: number) => {
+    setSavingOcrText(true);
+    setBannerError(null);
+    try {
+      const res = await fetch(`/api/v1/documents/${documentId}/text`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageNumber, text: editedPageText }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update OCR text');
+      setEditingPageNumber(null);
+      await fetchOcrText();
+    } catch (err: any) {
+      setBannerError(err.message || 'Failed to update OCR text');
+    } finally {
+      setSavingOcrText(false);
+    }
+  };
 
   const fetchDocumentDetails = async () => {
     setLoading(true);
@@ -788,51 +853,136 @@ export default function DocumentDetailsPage() {
 
         {activeTab === 'ocr' ? (
           <SectionCard
-            title="OCR Text"
-            description="Page-level OCR output returned by the backend."
+            title="OCR & Text Extraction"
+            description="Page-level OCR recognition and text extraction output."
             actions={
-              <PrimaryButton type="button" onClick={handleProcessOcr} disabled={processingOcr}>
-                <Cpu className="h-4 w-4" />
-                {processingOcr ? 'Processing...' : 'Run OCR Pipeline'}
-              </PrimaryButton>
+              <div className="flex flex-wrap items-center gap-2">
+                {ocrPages.length > 0 ? (
+                  <>
+                    <SecondaryButton type="button" onClick={handleCopyOcrText}>
+                      {copiedOcrText ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                      {copiedOcrText ? 'Copied!' : 'Copy Text'}
+                    </SecondaryButton>
+                    <SecondaryButton type="button" onClick={() => handleExportOcr('txt')}>
+                      <Download className="h-4 w-4" />
+                      Export TXT
+                    </SecondaryButton>
+                    <SecondaryButton type="button" onClick={() => handleExportOcr('json')}>
+                      <FileText className="h-4 w-4" />
+                      Export JSON
+                    </SecondaryButton>
+                  </>
+                ) : null}
+                <PrimaryButton type="button" onClick={handleProcessOcr} disabled={processingOcr}>
+                  <Cpu className="h-4 w-4" />
+                  {processingOcr ? 'Processing...' : 'Run OCR Pipeline'}
+                </PrimaryButton>
+              </div>
             }
           >
             {ocrPages.length === 0 ? (
               <EmptyState
-                title="No OCR pages yet"
-                description="Run the OCR pipeline to extract page-level text."
+                title="No OCR pages extracted yet"
+                description="Run the OCR recognition pipeline to extract page-level text."
                 action={
                   <PrimaryButton type="button" onClick={handleProcessOcr} disabled={processingOcr}>
                     <Cpu className="h-4 w-4" />
-                    {processingOcr ? 'Processing...' : 'Process Document'}
+                    {processingOcr ? 'Processing...' : 'Run OCR Pipeline'}
                   </PrimaryButton>
                 }
               />
             ) : (
               <div className="space-y-4">
-                {ocrPages.map((page) => (
-                  <div key={page.pageNumber} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-900">
-                          {page.pageNumber}
-                        </span>
-                        <p className="font-medium text-slate-900">Page {page.pageNumber}</p>
+                {/* Search / Filter Bar */}
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={ocrSearchQuery}
+                    onChange={(e) => setOcrSearchQuery(e.target.value)}
+                    placeholder="Search keywords inside extracted OCR text..."
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                  />
+                  {ocrSearchQuery ? (
+                    <button
+                      onClick={() => setOcrSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400 hover:text-slate-600"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+
+                {ocrPages
+                  .filter(
+                    (p) =>
+                      !ocrSearchQuery.trim() ||
+                      p.text.toLowerCase().includes(ocrSearchQuery.toLowerCase()) ||
+                      String(p.pageNumber).includes(ocrSearchQuery)
+                  )
+                  .map((page) => {
+                    const isEditing = editingPageNumber === page.pageNumber;
+                    return (
+                      <div key={page.pageNumber} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-slate-300">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-900 shadow-sm">
+                              {page.pageNumber}
+                            </span>
+                            <p className="font-medium text-slate-900">Page {page.pageNumber}</p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                              {page.method}
+                            </span>
+                            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                              {page.confidence !== null && page.confidence !== undefined
+                                ? `${(page.confidence > 1 ? page.confidence : page.confidence * 100).toFixed(1)}% confidence`
+                                : 'No score'}
+                            </span>
+                            {canEditMetadata && !isEditing ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingPageNumber(page.pageNumber);
+                                  setEditedPageText(page.text);
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-cyan-600 hover:text-cyan-700"
+                              >
+                                <Edit3 className="h-3.5 w-3.5" /> Edit
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {isEditing ? (
+                          <div className="mt-3 space-y-2">
+                            <textarea
+                              rows={4}
+                              value={editedPageText}
+                              onChange={(e) => setEditedPageText(e.target.value)}
+                              className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                            />
+                            <div className="flex items-center justify-end gap-2">
+                              <SecondaryButton type="button" onClick={() => setEditingPageNumber(null)}>
+                                Cancel
+                              </SecondaryButton>
+                              <PrimaryButton
+                                type="button"
+                                onClick={() => handleSaveEditedOcrPage(page.pageNumber)}
+                                disabled={savingOcrText}
+                              >
+                                <Save className="h-4 w-4" />
+                                {savingOcrText ? 'Saving...' : 'Save OCR Text'}
+                              </PrimaryButton>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{page.text || 'No text extracted.'}</p>
+                        )}
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700">
-                          {page.method}
-                        </span>
-                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700">
-                          {page.confidence !== null && page.confidence !== undefined
-                            ? `${(page.confidence > 1 ? page.confidence : page.confidence * 100).toFixed(1)}% confidence`
-                            : 'No confidence score'}
-                        </span>
-                      </div>
-                    </div>
-                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{page.text || 'No text extracted.'}</p>
-                  </div>
-                ))}
+                    );
+                  })}
               </div>
             )}
           </SectionCard>
