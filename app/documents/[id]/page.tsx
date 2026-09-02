@@ -198,7 +198,7 @@ export default function DocumentDetailsPage() {
           }
           const img = new Image();
           img.onload = () => {
-            const canvas = document.createElement('canvas');
+            const canvas = window.document.createElement('canvas');
             let width = img.width;
             let height = img.height;
             const maxDim = 2000;
