@@ -446,15 +446,19 @@ export default function DocumentDetailsPage() {
   };
 
   const handleView = async () => {
+    if (!document) return;
+
     const requestId = ++previewLoadIdRef.current;
+
     setPreviewOpen(true);
     setPreviewLoading(true);
     setPreviewError(null);
-    setPreviewFilename(document?.originalFilename || '');
-    setPreviewMimeType(document?.mimeType || 'application/octet-stream');
+    setPreviewFilename(document.originalFilename);
+    setPreviewMimeType(document.mimeType || 'application/octet-stream');
 
     try {
       const res = await fetch(`/api/v1/documents/${documentId}/download`);
+
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error || 'Failed to load document preview');
@@ -469,17 +473,36 @@ export default function DocumentDetailsPage() {
       }
 
       setPreviewUrl((current) => {
-        if (current) URL.revokeObjectURL(current);
+        if (current) {
+          URL.revokeObjectURL(current);
+        }
+
         return nextPreviewUrl;
       });
-      setPreviewMimeType(res.headers.get('content-type') || document?.mimeType || blob.type || 'application/octet-stream');
-      if (requestId !== previewLoadIdRef.current) return;
-      setPreviewError(err.message || 'Failed to load document preview');
+
+      setPreviewMimeType(
+        res.headers.get('content-type') ||
+        document.mimeType ||
+        blob.type ||
+        'application/octet-stream'
+      );
+    } catch (err: any) {
+      if (requestId !== previewLoadIdRef.current) {
+        return;
+      }
+
+      setPreviewError(
+        err.message || 'Failed to load document preview'
+      );
     } finally {
-      if (requestId !== previewLoadIdRef.current) return;
+      if (requestId !== previewLoadIdRef.current) {
+        return;
+      }
+
       setPreviewLoading(false);
     }
   };
+
 
   const copyHash = async () => {
     if (!document?.sha256) return;
@@ -495,32 +518,33 @@ export default function DocumentDetailsPage() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closePreview();
+      if (event.key === 'Escape') {
+        closePreview();
+      }
     };
 
-    if (previewOpen && typeof window !== 'undefined' && document?.body) {
-      document.body.style.overflow = 'hidden';
+    if (
+      previewOpen &&
+      typeof window !== 'undefined' &&
+      globalThis.document?.body
+    ) {
+      globalThis.document.body.style.overflow = 'hidden';
       window.addEventListener('keydown', handleKeyDown);
     }
 
     return () => {
-      if (typeof document !== 'undefined' && document?.body) {
-        document.body.style.overflow = '';
+      if (
+        typeof globalThis.document !== 'undefined' &&
+        globalThis.document?.body
+      ) {
+        globalThis.document.body.style.overflow = '';
       }
+
       if (typeof window !== 'undefined') {
         window.removeEventListener('keydown', handleKeyDown);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewOpen]);
-
-  useEffect(() => {
-    return () => {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
-    };
-  }, [previewUrl]);
 
   const tabItems: Array<{ key: DocumentTab; label: string; count?: number }> = [
     { key: 'overview', label: 'Overview' },
