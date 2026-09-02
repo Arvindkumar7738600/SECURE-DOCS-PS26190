@@ -187,6 +187,7 @@ export default function DocumentDetailsPage() {
     setProcessingOcr(true);
     setBannerError(null);
     try {
+      // Read file as base64
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
@@ -198,18 +199,38 @@ export default function DocumentDetailsPage() {
         reader.readAsDataURL(selectedFile);
       });
 
+      // Send with a 55-second timeout for Tesseract cold start
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 55000);
+
       const res = await fetch(`/api/v1/documents/${documentId}/reprocess`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contentBase64: base64 }),
+        signal: controller.signal,
       });
-      const data = await res.json();
+      clearTimeout(timeout);
+
+      // Handle non-JSON responses (Vercel error pages)
+      let data: any;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        data = { error: `Server error (${res.status}): ${text.slice(0, 200)}` };
+      }
+
       if (!res.ok) throw new Error(data.error || 'Failed to process re-uploaded evidence file');
 
       await fetchDocumentDetails();
       setActiveTab('ocr');
     } catch (err: any) {
-      setBannerError(err.message || 'Failed to extract text from evidence file');
+      if (err.name === 'AbortError') {
+        setBannerError('OCR processing timed out. The server may be cold-starting. Please try again in 30 seconds.');
+      } else {
+        setBannerError(err.message || 'Failed to extract text from evidence file');
+      }
     } finally {
       setProcessingOcr(false);
       if (reuploadInputRef.current) reuploadInputRef.current.value = '';

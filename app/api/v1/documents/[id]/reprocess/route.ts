@@ -58,39 +58,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Store encrypted copy in DB metadata for future downloads
-    try {
-      const { storeEncryptedDocumentPlaintext } = await import('@/lib/documents/document-bytes');
-      const stored = await storeEncryptedDocumentPlaintext(version.storageKey, plaintextBuffer);
-
-      // Update the version record with the NEW encryption parameters
-      await prisma.documentVersion.update({
-        where: { id: version.id },
-        data: {
-          iv: stored.iv,
-          authTag: stored.authTag,
-          encryptionAlgorithm: stored.encryptionAlgorithm,
-        },
-      });
-
-      // Also store ciphertextBase64 in metadata for database vault fallback
-      const currentMeta = await prisma.documentMetadata.findUnique({ where: { documentId: id } });
-      const existingRaw = (currentMeta?.rawMetadata as any) || {};
-      await prisma.documentMetadata.upsert({
-        where: { documentId: id },
-        create: {
-          documentId: id,
-          rawMetadata: { ...existingRaw, ciphertextBase64: stored.ciphertext.toString('base64') },
-        },
-        update: {
-          rawMetadata: { ...existingRaw, ciphertextBase64: stored.ciphertext.toString('base64') },
-        },
-      });
-    } catch (storeErr: any) {
-      console.warn('Encrypted storage failed (non-fatal, OCR will still run):', storeErr?.message);
-    }
-
-    // Run OCR DIRECTLY on the plaintext buffer — no encrypt/decrypt cycle
+    // Run OCR FIRST — this is the critical path the user is waiting for
     const ocrResult = await OCRService.processDocument(plaintextBuffer, document.mimeType);
 
     if (!ocrResult.success || ocrResult.pages.length === 0) {
@@ -102,7 +70,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     // Store OCR pages and mark document COMPLETED
     await prisma.$transaction(async (tx) => {
-      // Delete any old gibberish OCR pages
       await tx.ocrPage.deleteMany({ where: { versionId: version.id } });
 
       for (const p of ocrResult.pages) {
@@ -125,14 +92,34 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       });
     });
 
-    await logAuditEvent({
-      userId: auth.user.id,
-      documentId: id,
-      action: AuditAction.PROCESS_DOCUMENT,
-      ipAddress,
-      userAgent,
-      metadata: { action: 'REPROCESS', pagesCount: ocrResult.pages.length },
-    });
+    // Fire-and-forget: store encrypted copy + audit log (non-blocking)
+    void (async () => {
+      try {
+        const { storeEncryptedDocumentPlaintext } = await import('@/lib/documents/document-bytes');
+        const stored = await storeEncryptedDocumentPlaintext(version.storageKey, plaintextBuffer);
+        await prisma.documentVersion.update({
+          where: { id: version.id },
+          data: { iv: stored.iv, authTag: stored.authTag, encryptionAlgorithm: stored.encryptionAlgorithm },
+        });
+        const currentMeta = await prisma.documentMetadata.findUnique({ where: { documentId: id } });
+        const existingRaw = (currentMeta?.rawMetadata as any) || {};
+        await prisma.documentMetadata.upsert({
+          where: { documentId: id },
+          create: { documentId: id, rawMetadata: { ...existingRaw, ciphertextBase64: stored.ciphertext.toString('base64') } },
+          update: { rawMetadata: { ...existingRaw, ciphertextBase64: stored.ciphertext.toString('base64') } },
+        });
+      } catch (e) { console.warn('Background storage failed:', e); }
+      try {
+        await logAuditEvent({
+          userId: auth.user.id,
+          documentId: id,
+          action: AuditAction.PROCESS_DOCUMENT,
+          ipAddress,
+          userAgent,
+          metadata: { action: 'REPROCESS', pagesCount: ocrResult.pages.length },
+        });
+      } catch (e) { console.warn('Audit log failed:', e); }
+    })();
 
     return NextResponse.json(
       {
