@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { list, put } from '@vercel/blob';
+import { get, list, put } from '@vercel/blob';
 import { encryptDocument, decryptDocument } from '@/lib/security/document-encryption';
 import { calculateSha256 } from '@/lib/security/hash';
 
@@ -74,6 +74,10 @@ function getBlobToken(): string | null {
   return token && token !== 'vercel_blob_rw_dummy_token_for_local_dev' ? token : null;
 }
 
+function getBlobStoreId(): string | undefined {
+  return process.env.BLOB_READ_WRITE_TOKEN_STORE_ID?.trim() || undefined;
+}
+
 function shouldUseLocalFilesystem(): boolean {
   // An explicit local directory is useful for development and automated tests.
   if (process.env.DOCUMENT_STORAGE_DIR || process.env.PRIVATE_STORAGE_DIR) {
@@ -118,8 +122,9 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
 
   if (storageBackend === 'vercel-blob') {
     const token = getBlobToken()!;
+    const storeId = getBlobStoreId();
     try {
-      const result = await list({ prefix: storageKey, limit: 1000, token });
+      const result = await list({ prefix: storageKey, limit: 1000, storeId, token });
       const blob = result.blobs.find((item) => item.pathname === storageKey);
       if (!blob) {
         throw new DocumentStorageError(
@@ -128,13 +133,18 @@ async function readStoredBytes(storageKey: string): Promise<{ ciphertext: Buffer
         );
       }
 
-      const response = await fetch(blob.url, { cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error(`Blob download failed with status ${response.status}`);
+      const response = await get(blob.url, {
+        access: 'private',
+        storeId,
+        token,
+        useCache: false,
+      });
+      if (!response || response.statusCode !== 200 || !response.stream) {
+        throw new Error('Blob download returned no document content');
       }
 
       return {
-        ciphertext: Buffer.from(await response.arrayBuffer()),
+        ciphertext: Buffer.from(await new Response(response.stream).arrayBuffer()),
         sourcePath: blob.url,
       };
     } catch (error) {
@@ -181,10 +191,13 @@ export async function storeDocumentCiphertext(storageKey: string, ciphertext: Bu
 
   if (storageBackend === 'vercel-blob') {
     const token = getBlobToken()!;
+    const storeId = getBlobStoreId();
     try {
       const blob = await put(storageKey, ciphertext, {
-        access: 'public',
+        access: 'private',
+        storeId,
         addRandomSuffix: false,
+        contentType: 'application/octet-stream',
         token,
       });
 
