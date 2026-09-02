@@ -238,10 +238,7 @@ export default function DocumentDetailsPage() {
       if (selectedFile.type.startsWith('image/')) {
         try {
           const { createWorker } = await import('tesseract.js');
-          const worker = await createWorker('eng', 1, {
-            langPath: 'https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0',
-            logger: () => {},
-          });
+          const worker = await createWorker('eng');
           const ret = await worker.recognize(selectedFile);
           await worker.terminate();
           if (ret.data.text && ret.data.text.trim().length > 0) {

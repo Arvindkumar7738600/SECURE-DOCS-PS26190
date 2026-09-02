@@ -65,6 +65,29 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       }
     }
 
+    if (finalPages.length === 0 && plaintextBuffer.length > 0) {
+      try {
+        const ocrPromise = OCRService.processDocument(plaintextBuffer, document.mimeType);
+        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000));
+        const ocrResult: any = await Promise.race([ocrPromise, timeoutPromise]);
+        if (ocrResult?.success && ocrResult.pages?.length > 0) {
+          const validPages = ocrResult.pages.filter(
+            (p: any) => p.text && !p.text.startsWith('No OCR text') && !p.text.includes('NO_TEXT_DETECTED')
+          );
+          if (validPages.length > 0) {
+            finalPages = validPages.map((p: any) => ({
+              pageNumber: p.pageNumber,
+              text: p.text,
+              confidence: p.confidence ?? 90,
+              method: 'SERVER_OCR',
+            }));
+          }
+        }
+      } catch (ocrErr) {
+        console.warn('Fast server OCR attempt skipped:', ocrErr);
+      }
+    }
+
     if (finalPages.length === 0) {
       const filename = document.originalFilename || 'Evidence Image';
       const byteCount = plaintextBuffer.length > 0 ? plaintextBuffer.length : (cleanBase64.length ? Math.floor(cleanBase64.length * 0.75) : 1024);
