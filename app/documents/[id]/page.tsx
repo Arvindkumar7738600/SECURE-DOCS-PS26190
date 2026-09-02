@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   Sparkles,
   Tag,
+  Upload,
   User,
   UserPlus,
   X,
@@ -172,10 +173,47 @@ export default function DocumentDetailsPage() {
   const [editingPageNumber, setEditingPageNumber] = useState<number | null>(null);
   const [editedPageText, setEditedPageText] = useState('');
   const [savingOcrText, setSavingOcrText] = useState(false);
+  const [reuploading, setReuploading] = useState(false);
+  const reuploadInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const canEditMetadata = userRoles.some((r) => ['ADMIN', 'INVESTIGATOR', 'OFFICER', 'LEGAL'].includes(r));
   const canSign = userRoles.some((r) => ['ADMIN', 'INVESTIGATOR'].includes(r));
   const canShare = userRoles.some((r) => ['ADMIN', 'INVESTIGATOR', 'LEGAL'].includes(r));
+
+  const handleReuploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    setReuploading(true);
+    setBannerError(null);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const res = String(reader.result || '');
+          const clean = res.includes(',') ? res.split(',')[1] : res;
+          resolve(clean);
+        };
+        reader.onerror = () => reject(new Error('Failed to read selected file'));
+        reader.readAsDataURL(selectedFile);
+      });
+
+      const res = await fetch(`/api/v1/documents/${documentId}/reprocess`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentBase64: base64 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to re-upload file');
+
+      await fetchDocumentDetails();
+    } catch (err: any) {
+      setBannerError(err.message || 'Failed to re-upload evidence file');
+    } finally {
+      setReuploading(false);
+      if (reuploadInputRef.current) reuploadInputRef.current.value = '';
+    }
+  };
 
   // Auto-polling when document is processing
   useEffect(() => {
@@ -872,6 +910,18 @@ export default function DocumentDetailsPage() {
                       Export JSON
                     </SecondaryButton>
                   </>
+                <input
+                  type="file"
+                  ref={reuploadInputRef}
+                  style={{ display: 'none' }}
+                  accept="image/*,application/pdf,text/plain"
+                  onChange={handleReuploadFile}
+                />
+                {canEditMetadata ? (
+                  <SecondaryButton type="button" onClick={() => reuploadInputRef.current?.click()} disabled={reuploading}>
+                    <Upload className="h-4 w-4" />
+                    {reuploading ? 'Uploading...' : 'Re-upload Evidence File'}
+                  </SecondaryButton>
                 ) : null}
                 <PrimaryButton type="button" onClick={handleProcessOcr} disabled={processingOcr}>
                   <Cpu className="h-4 w-4" />

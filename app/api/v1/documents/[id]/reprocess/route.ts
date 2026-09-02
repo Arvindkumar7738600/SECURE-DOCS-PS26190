@@ -5,6 +5,8 @@ import { prisma } from '@/lib/db/prisma';
 import { logAuditEvent } from '@/lib/audit/logger';
 import { AuditAction, ProcessingStatus } from '@prisma/client';
 
+import { storeEncryptedDocumentPlaintext } from '@/lib/documents/document-bytes';
+
 export const dynamic = 'force-dynamic';
 
 interface RouteParams {
@@ -34,6 +36,31 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     if (!document || document.versions.length === 0) {
       return NextResponse.json({ error: 'Document or version record not found' }, { status: 404 });
+    }
+
+    // Optional re-upload Base64 buffer attachment
+    const body = await req.json().catch(() => ({}));
+    if (body?.contentBase64) {
+      const cleanBase64 = String(body.contentBase64).replace(/^data:[^;]+;base64,/, '').trim();
+      const plaintextBuffer = Buffer.from(cleanBase64, 'base64');
+      if (plaintextBuffer.length > 0) {
+        const version = document.versions[0];
+        const stored = await storeEncryptedDocumentPlaintext(version.storageKey, plaintextBuffer);
+
+        const currentMeta = await prisma.documentMetadata.findUnique({ where: { documentId: id } });
+        const existingRaw = (currentMeta?.rawMetadata as any) || {};
+
+        await prisma.documentMetadata.upsert({
+          where: { documentId: id },
+          create: {
+            documentId: id,
+            rawMetadata: { ...existingRaw, ciphertextBase64: stored.ciphertext.toString('base64') },
+          },
+          update: {
+            rawMetadata: { ...existingRaw, ciphertextBase64: stored.ciphertext.toString('base64') },
+          },
+        });
+      }
     }
 
     // Reset or create new ProcessingJob
