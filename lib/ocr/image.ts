@@ -2,12 +2,15 @@ import { createWorker } from 'tesseract.js';
 import { OcrProcessingResult } from './types';
 import path from 'path';
 import os from 'os';
+import fs from 'fs/promises';
 
 export async function extractTextFromImage(buffer: Buffer): Promise<OcrProcessingResult> {
   const runTesseract = async (): Promise<OcrProcessingResult> => {
     let worker: any = null;
     try {
       const cachePath = path.join(os.tmpdir(), 'tesseract-cache');
+      await fs.mkdir(cachePath, { recursive: true }).catch(() => {});
+
       worker = await createWorker('eng', undefined, {
         cachePath,
         logger: () => {},
