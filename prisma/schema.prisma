@@ -1,0 +1,387 @@
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+enum RoleName {
+  ADMIN
+  INVESTIGATOR
+  OFFICER
+  LEGAL
+  AUDITOR
+  VIEWER
+}
+
+enum CaseStatus {
+  OPEN
+  UNDER_INVESTIGATION
+  PENDING_REVIEW
+  CLOSED
+  ARCHIVED
+}
+
+enum CasePriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DocumentType {
+  FIR
+  POLICE_REPORT
+  INVESTIGATION_REPORT
+  WITNESS_STATEMENT
+  CHARGE_SHEET
+  COURT_FILING
+  EVIDENCE_REPORT
+  FORENSIC_REPORT
+  LEGAL_DOCUMENT
+  JUDGMENT
+  OTHER
+}
+
+enum ProcessingStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum SharePermission {
+  VIEW
+  DOWNLOAD
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  CREATE_CASE
+  UPDATE_CASE
+  UPLOAD_DOCUMENT
+  PROCESS_DOCUMENT
+  VIEW_DOCUMENT
+  DOWNLOAD_DOCUMENT
+  SEARCH
+  EDIT_METADATA
+  CREATE_VERSION
+  SHARE_DOCUMENT
+  REVOKE_SHARE
+  SIGN_DOCUMENT
+  VERIFY_INTEGRITY
+  FAILED_ACCESS
+  ADMIN_ACTION
+  MFA_SETUP
+  MFA_ENABLED
+  MFA_VERIFIED
+  MFA_FAILED
+  MFA_DISABLED
+  MFA_RECOVERY_USED
+  DELETE_CASE
+  CASE_MEMBER_ADDED
+  CASE_MEMBER_REMOVED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  fullName     String   @map("full_name")
+  department   String
+  isActive     Boolean  @default(true) @map("is_active")
+  mfaEnabled   Boolean  @default(false) @map("mfa_enabled")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  userRoles        UserRole[]
+  createdCases     Case[]            @relation("CreatedCases")
+  caseMemberships  CaseMember[]
+  uploadedDocs     Document[]        @relation("UploadedDocs")
+  uploadedVersions DocumentVersion[] @relation("UploadedVersions")
+  auditLogs        AuditLog[]
+  sharesGiven      Share[]           @relation("SharedBy")
+  sharesReceived   Share[]           @relation("SharedWith")
+  signatures       Signature[]
+  mfaDevices       MfaDevice[]
+
+  @@map("users")
+}
+
+model Role {
+  id        String   @id @default(uuid())
+  name      RoleName @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  userRoles UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  roleId    String   @map("role_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+model Case {
+  id          String       @id @default(uuid())
+  caseNumber  String       @unique @map("case_number")
+  title       String
+  description String       @db.Text
+  caseType    String       @map("case_type")
+  status      CaseStatus   @default(OPEN)
+  priority    CasePriority @default(MEDIUM)
+  department  String
+  createdBy   String       @map("created_by")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  creator   User         @relation("CreatedCases", fields: [createdBy], references: [id])
+  members   CaseMember[]
+  documents Document[]
+  auditLogs AuditLog[]
+
+  @@index([caseNumber])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+  @@index([createdBy])
+  @@map("cases")
+}
+
+model CaseMember {
+  id        String   @id @default(uuid())
+  caseId    String   @map("case_id")
+  userId    String   @map("user_id")
+  role      RoleName @default(INVESTIGATOR)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, userId])
+  @@map("case_members")
+}
+
+model Document {
+  id               String           @id @default(uuid())
+  caseId           String           @map("case_id")
+  title            String
+  originalFilename String           @map("original_filename")
+  mimeType         String           @map("mime_type")
+  documentType     DocumentType     @map("document_type")
+  currentVersion   Int              @default(1) @map("current_version")
+  status           ProcessingStatus @default(QUEUED)
+  createdBy        String           @map("created_by")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  case           Case              @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  uploader       User              @relation("UploadedDocs", fields: [createdBy], references: [id])
+  versions       DocumentVersion[]
+  metadata       DocumentMetadata?
+  chunks         DocumentChunk[]
+  auditLogs      AuditLog[]
+  shares         Share[]
+  signatures     Signature[]
+  processingJobs ProcessingJob[]
+  ocrPages       OcrPage[]
+
+  @@index([caseId])
+  @@index([documentType])
+  @@index([status])
+  @@index([createdAt])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id                  String   @id @default(uuid())
+  documentId          String   @map("document_id")
+  versionNumber       Int      @map("version_number")
+  storageKey          String   @map("storage_key")
+  sha256              String
+  encryptionAlgorithm String   @default("AES-256-GCM") @map("encryption_algorithm")
+  encryptionVersion   Int      @default(1) @map("encryption_version")
+  iv                  String
+  authTag             String   @map("auth_tag")
+  uploadedBy          String   @map("uploaded_by")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  document       Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  uploader       User            @relation("UploadedVersions", fields: [uploadedBy], references: [id])
+  chunks         DocumentChunk[]
+  signatures     Signature[]
+  processingJobs ProcessingJob[]
+  ocrPages       OcrPage[]
+
+  @@unique([documentId, versionNumber])
+  @@map("document_versions")
+}
+
+model DocumentMetadata {
+  id            String   @id @default(uuid())
+  documentId    String   @unique @map("document_id")
+  caseNumber    String?  @map("case_number")
+  documentDate  String?  @map("document_date")
+  policeStation String?  @map("police_station")
+  officer       String?
+  persons       Json     @default("[]")
+  locations     Json     @default("[]")
+  organizations Json     @default("[]")
+  summary       String?  @db.Text
+  rawMetadata   Json     @default("{}") @map("raw_metadata")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  updatedBy     String?  @map("updated_by")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_metadata")
+}
+
+model DocumentChunk {
+  id         String                      @id @default(uuid())
+  documentId String                      @map("document_id")
+  versionId  String                      @map("version_id")
+  pageNumber Int                         @map("page_number")
+  chunkIndex Int                         @map("chunk_index")
+  content    String                      @db.Text
+  embedding  Unsupported("vector(384)")?
+  createdAt  DateTime                    @default(now()) @map("created_at")
+
+  document Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version  DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([versionId])
+  @@map("document_chunks")
+}
+
+model OcrPage {
+  id         String   @id @default(uuid())
+  documentId String   @map("document_id")
+  versionId  String   @map("version_id")
+  pageNumber Int      @map("page_number")
+  text       String   @db.Text
+  confidence Float?
+  method     String   @default("OCR")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  document Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version  DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, pageNumber])
+  @@index([documentId])
+  @@index([versionId])
+  @@map("ocr_pages")
+}
+
+model AuditLog {
+  id           String      @id @default(uuid())
+  userId       String?     @map("user_id")
+  caseId       String?     @map("case_id")
+  documentId   String?     @map("document_id")
+  action       AuditAction
+  timestamp    DateTime    @default(now())
+  ipAddress    String      @map("ip_address")
+  userAgent    String      @map("user_agent")
+  metadata     Json        @default("{}")
+  previousHash String?     @map("previous_hash")
+  currentHash  String      @map("current_hash")
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  case     Case?     @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([caseId])
+  @@index([documentId])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+model Share {
+  id         String          @id @default(uuid())
+  documentId String          @map("document_id")
+  sharedBy   String          @map("shared_by")
+  sharedWith String          @map("shared_with")
+  permission SharePermission @default(VIEW)
+  expiresAt  DateTime?       @map("expires_at")
+  revokedAt  DateTime?       @map("revoked_at")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  document  Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  sharer    User     @relation("SharedBy", fields: [sharedBy], references: [id])
+  recipient User     @relation("SharedWith", fields: [sharedWith], references: [id])
+
+  @@index([documentId])
+  @@index([sharedWith])
+  @@index([expiresAt])
+  @@map("shares")
+}
+
+model Signature {
+  id                 String   @id @default(uuid())
+  documentId         String   @map("document_id")
+  versionId          String   @map("version_id")
+  signerId           String   @map("signer_id")
+  algorithm          String   @default("RSA-SHA256")
+  signature          String   @db.Text
+  publicKey          String   @map("public_key") @db.Text
+  signedHash         String   @map("signed_hash")
+  verificationStatus String   @default("VALID") @map("verification_status")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  document Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version  DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  signer   User            @relation(fields: [signerId], references: [id])
+
+  @@map("signatures")
+}
+
+model ProcessingJob {
+  id           String           @id @default(uuid())
+  documentId   String           @map("document_id")
+  versionId    String           @map("version_id")
+  status       ProcessingStatus @default(QUEUED)
+  currentStep  String           @default("UPLOADED") @map("current_step")
+  errorMessage String?          @map("error_message") @db.Text
+  startedAt    DateTime?        @map("started_at")
+  completedAt  DateTime?        @map("completed_at")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  document Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version  DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("processing_jobs")
+}
+
+model MfaDevice {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  secretEncrypted String    @map("secret_encrypted")
+  isVerified      Boolean   @default(false) @map("is_verified")
+  recoveryCodes   Json      @default("[]") @map("recovery_codes")
+  lastUsedAt      DateTime? @map("last_used_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("mfa_devices")
+}

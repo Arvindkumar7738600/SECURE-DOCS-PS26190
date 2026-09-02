@@ -1,0 +1,22 @@
+===================================================================
+SYNTHETIC DEMONSTRATION DATA - NOT REAL POLICE INFORMATION
+===================================================================
+
+CASE REF: CASE-2026-001
+DOCUMENT TYPE: EVIDENCE_REPORT
+TIMESTAMP: 2026-08-28T00:00:00Z
+LOCATION: CENTRAL DIGITAL FORENSICS LAB
+
+SUMMARY:
+This synthetic demonstration document is used exclusively for unit,
+integration, and integrity testing of the Secure Digital Case & Evidence
+Management System prototype (SIH 2026).
+
+INTEGRITY TEST DATA:
+Primary Account Subject: Accused_Entity_Alpha_99
+Transaction Sequence: 9948-2849-1029-4482
+Status: VERIFIED_SYNTHETIC_DATA
+
+===================================================================
+END OF SYNTHETIC DEMONSTRATION RECORD
+===================================================================
