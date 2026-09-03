@@ -16,7 +16,7 @@ import { prisma } from '@/lib/db/prisma';
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
-  let stats = {
+  const stats = {
     caseNumber: 'CR-2026-88912',
     caseTitle: 'Cyber Fraud Investigation — Operations Division',
     totalFiles: 48,
